@@ -9,8 +9,6 @@ read choice
 if [ "$choice" == "y" ]; then
    pip install --upgrade pip
    pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-else
-   echo "使用默认源"
 fi
 
 # 创建虚拟环境
@@ -18,23 +16,22 @@ if [ ! -d "venv" ]; then
    echo "正在创建虚拟环境"
    python -m venv venv
    echo "venv环境创建成功！"
-   source venv/bin/activate
-else
-   source venv/bin/activate
 fi
+source venv/bin/activate
 
 # 检查并安装依赖包
+echo "正在检查并安装依赖包"
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 # 选择操作
-echo "请选择操作："
-echo "1. 安装依赖包"
+echo "============================"
+echo "1. 打包为可执行文件"
 echo "2. 退出"
+echo "============================"
 read operation
 
 if [ "$operation" == "1" ]; then
-   echo "正在检查并安装依赖包"
-   pip install --upgrade pip
-   pip install -r requirements.txt
+    pyinstaller --onefile --name=auto-excel-schedule main.py
+    read -p "打包完成，请按任意键继续..."
 fi
