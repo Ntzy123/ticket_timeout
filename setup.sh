@@ -20,7 +20,6 @@ if [ ! -d "venv" ]; then
    echo "venv环境创建成功！"
    source venv/bin/activate
 else
-   echo "虚拟环境已存在，跳过创建"
    source venv/bin/activate
 fi
 
@@ -38,6 +37,4 @@ if [ "$operation" == "1" ]; then
    echo "正在检查并安装依赖包"
    pip install --upgrade pip
    pip install -r requirements.txt
-else
-   echo "退出程序"
 fi
