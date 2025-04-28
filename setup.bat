@@ -20,6 +20,8 @@ if not exist venv (
     echo "venv环境创建成功！"
     timeout /t 2 >nul
 )
+
+REM 激活虚拟环境并安装依赖包
 call venv\Scripts\activate
 echo "正在检查并安装依赖包"
 python -m pip install --upgrade pip

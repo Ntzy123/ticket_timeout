@@ -1,21 +1,87 @@
 # main.py
 
-import json, requests
-from pprint import pprint
+import json, requests, time, threading, os
+from datetime import date, datetime, timedelta
+from pprint import pprint as pp
 
 class Ticket:
-    def load(self, filename):
+    
+    # 加载配置文件
+    def load(self,filename):
+        """
+        # 读取用户配置文件
+        with open(toml_filename, 'rb') as file:
+            self.content = self.config['query_content']
+            self.time_range = self.config['query_time_range']
+            self.shift = self.config['is_day_shift']
+        """
+
+        # 读取res配置文件
         with open(filename, 'r', encoding='utf-8') as file:
-            self.config = json.load(file)
-            #self.content = self.config['query_content']
-            #self.time_range = self.config['query_time_range']
-            self.url = self.config['url']
-            self.headers = self.config['headers']
-            self.json = self.config['json']
+            config = json.load(file)
+            self.url = config['url']
+            self.headers = config['headers']
+            self.json = config['json']
+            current_date = str(date.today())
+            yesterday_date = str(date.today() - timedelta(days=1))
+            self.json['data1'] = [yesterday_date, current_date]
+            self.json['startTime'] = f"{yesterday_date} 00:00:00"
+            self.json['endTime'] = f"{current_date} 23:59:59"
+
+    # 子方法 20分钟超时提醒
+    def _timeout(self,target_time):
+        current_time = datetime.now()
+        target_time = datetime.strptime(target_time, "%Y-%m-%d %H:%M:%S")
+        alert_time = target_time - timedelta(minutes=20)
+        if current_time >= alert_time:
+            # print("您有一条待处理的工单，任务即将超时请及时处理！")
+            pass
+
+    # 20分钟超时提醒
+    def query_timeout(self):
+        for record in self.data['data']['records']:
+            timeout_ticket = {}
+            self._timeout(record['feedBackTime'])
+
+    # 查询工单
+    def query(self):
+        res = requests.post(self.url, json=self.json, headers=self.headers)
+        self.data = res.json()
+        #查询
+        for record in self.data['data']['records']:
+            # 输出内容
+            print("任务描述：\t", record['workorderTitle'])
+            print("状态：\t\t", record['workorderStatusName'])
+            print("接单人：\t", record['acceptName'])
+            print("超时时间：\t", record['feedBackTime'])
+            print("\n", "-" * 50, "\n")
             
+            # 导出已查询工单
+            config = {"data": []}
+            data = {
+                "workorderNo": record.get('workorderNo'),
+                "workorderTitle": record.get('workorderTitle'),
+                "workorderStatusName": record.get('workorderStatusName'),
+                "acceptName": record.get('acceptName'),
+                "feedBackTime": record.get('feedBackTime')
+            }
+            config['data'].append(data)
+        with open ("export.json", "w", encoding="utf-8") as file:
+            json.dump(config, file, indent=4, ensure_ascii=False)
 
-
+def poll(tk):
+    while True:
+        time.sleep(300)
+        tk.query()
+            
 if __name__ == '__main__':
     tk = Ticket()
-    tk.load('config.json')   
-    pprint(tk.config)
+    tk.load(".config.json")
+    tk.query()
+    t = threading.Thread(target=poll,args=(tk,))
+    while True:
+        tk.load(".config.json")
+        #tk.query_timeout()
+        time.sleep(60)
+    
+    #pprint(tk.config)

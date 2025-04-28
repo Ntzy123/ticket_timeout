@@ -17,9 +17,9 @@ if [ ! -d "venv" ]; then
    python -m venv venv
    echo "venv环境创建成功！"
 fi
-source venv/bin/activate
 
-# 检查并安装依赖包
+# 激活虚拟环境并安装依赖包
+source venv/bin/activate
 echo "正在检查并安装依赖包"
 python -m pip install --upgrade pip
 pip install -r requirements.txt
