@@ -50,10 +50,11 @@ class Ticket:
             timeout_ticket_num = len(timeout_ticket['data'])
             for data in timeout_ticket['data']:
                 text = (
-                f"任务描述：\t{record['workorderTitle']}\n"
-                f"接单人：\t{record['acceptName']}\n"
-                f"超时时间：\t{record['feedBackTime']}\n" 
-                + "-" * 20 + "\n")
+                    f"任务描述：\t{record['workorderTitle']}\n"
+                    f"接单人：\t{record['acceptName']}\n"
+                    f"超时时间：\t{record['feedBackTime']}\n" 
+                    + "-" * 20 + "\n"
+                )
                 #print("任务描述：\t", record['workorderTitle'])
                 #print("接单人：\t", record['acceptName'])
                 #print("超时时间：\t", record['feedBackTime'])
