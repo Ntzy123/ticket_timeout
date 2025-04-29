@@ -1,8 +1,7 @@
 # main.py
 
-import json, requests, time, threading, os
+import json, requests, time
 from datetime import date, datetime, timedelta
-from pprint import pprint as pp
 
 class Ticket:
     
@@ -93,7 +92,8 @@ def poll(tk):
     while True:
         time.sleep(300)
         tk.query()
-            
+
+"""         
 if __name__ == '__main__':
     tk = Ticket()
     tk.load(".config.json")
@@ -105,3 +105,4 @@ if __name__ == '__main__':
         time.sleep(60)
     
     #pprint(tk.config)
+"""
