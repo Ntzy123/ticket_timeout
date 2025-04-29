@@ -21,14 +21,83 @@ class Ticket:
             self.url = config['url']
             self.headers = config['headers']
             self.json = config['json']
+            """ 查询并修改时间（弃用，转入query方法）
             current_date = str(date.today())
             yesterday_date = str(date.today() - timedelta(days=1))
             self.json['data1'] = [yesterday_date, current_date]
             self.json['startTime'] = f"{yesterday_date} 00:00:00"
             self.json['endTime'] = f"{current_date} 23:59:59"
+            """
+
+    # 查询工单
+    def query(self, serach=None, status=None, fm_type=None, ticket_type=None, time_range=None):
+        # 处理传入参数写入self.json
+        input_param = [serach, status, fm_type, ticket_type, time_range]
+        target_param = ["workorderTitle", "workorderStatus", "fmWoType", ["workorderStatus", "type"], ["data1", "startTime", "endTime"]]
+        workorderTitle = ""
+        for i, key in enumerate(target_param):
+            if i == 0 and input_param[i] != None:    # 处理工单标题
+                workorderTitle = input_param[i]
+            elif i == 3 and input_param[i] != None: pass # 处理工单status
+            elif i == 4 and input_param[i] != None:    # 处理时间范围
+                self.json[key[0]] = time_range
+                start = f"{time_range[0]} 00:00:00"
+                end = f"{time_range[1]} 23:59:59"
+                self.json[key[1]] = start
+                self.json[key[2]] = end
+            elif input_param[i] != None: # 处理其他参数
+                self.json[key] = input_param[i]
+
+        # 发起POST请求并存储
+        res = requests.post(self.url, json=self.json, headers=self.headers)
+        self.data = res.json()
+
+        #查询
+        config = []
+        for record in self.data['data']['records']:
+            # 格式化输出内容
+            """
+            print("任务描述：\t", record['workorderTitle'])
+            print("状态：\t\t", record['workorderStatusName'])
+            print("接单人：\t", record['acceptName'])
+            print("超时时间：\t", record['feedBackTime'])
+            print("\n", "-" * 50, "\n")
+            """
+            # 导出已查询工单
+            data = {
+                "workorderNo": record.get('workorderNo'),
+                "workorderTitle": record.get('workorderTitle'),
+                "workorderStatusName": record.get('workorderStatusName'),
+                "acceptName": record.get('acceptName'),
+                "feedBackTime": record.get('feedBackTime')
+            }
+            if workorderTitle in data['workorderStatusName']:
+                config.append(data)
+        return config
+        # 到处export.json （已弃用）
+        #with open ("export.json", "w", encoding="utf-8") as file:
+            #json.dump(config, file, indent=4, ensure_ascii=False)
+
+    # 20分钟超时提醒
+    def query_timeout_pm(self):
+        timeout_ticket = []
+        for record in self.data['data']['records']:
+            self._timeout(record, timeout_ticket)
+            """ 测试用
+            for data in timeout_ticket:
+                
+                text = (
+                    f"任务描述：\t{record['workorderTitle']}\n"
+                    f"接单人：\t{record['acceptName']}\n"
+                    f"超时时间：\t{record['feedBackTime']}\n" 
+                    + "-" * 20 + "\n"
+                )
+                print(text)
+            """
+        return timeout_ticket
 
     # 子方法 20分钟超时提醒
-    def _timeout(self, record, timeout_ticket):
+    def _timeout_pm(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['feedBackTime'], "%Y-%m-%d %H:%M:%S")
         alert_time = target_time - timedelta(minutes=20)
@@ -39,53 +108,8 @@ class Ticket:
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('workorderTitle')
             }
-            timeout_ticket['data'].append(data)
+            timeout_ticket.append(data)
 
-    # 20分钟超时提醒
-    def query_timeout(self):
-        for record in self.data['data']['records']:
-            timeout_ticket = {'data': []}
-            self._timeout(record, timeout_ticket)
-            timeout_ticket_num = len(timeout_ticket['data'])
-            for data in timeout_ticket['data']:
-                text = (
-                    f"任务描述：\t{record['workorderTitle']}\n"
-                    f"接单人：\t{record['acceptName']}\n"
-                    f"超时时间：\t{record['feedBackTime']}\n" 
-                    + "-" * 20 + "\n"
-                )
-                #print("任务描述：\t", record['workorderTitle'])
-                #print("接单人：\t", record['acceptName'])
-                #print("超时时间：\t", record['feedBackTime'])
-                #print("\n", "-" * 20, "\n")
-                print(text)
-
-    # 查询工单
-    def query(self):
-        res = requests.post(self.url, json=self.json, headers=self.headers)
-        self.data = res.json()
-        #查询
-        for record in self.data['data']['records']:
-            # 输出内容
-            """
-            print("任务描述：\t", record['workorderTitle'])
-            print("状态：\t\t", record['workorderStatusName'])
-            print("接单人：\t", record['acceptName'])
-            print("超时时间：\t", record['feedBackTime'])
-            print("\n", "-" * 50, "\n")
-            """
-            # 导出已查询工单
-            config = {"data": []}
-            data = {
-                "workorderNo": record.get('workorderNo'),
-                "workorderTitle": record.get('workorderTitle'),
-                "workorderStatusName": record.get('workorderStatusName'),
-                "acceptName": record.get('acceptName'),
-                "feedBackTime": record.get('feedBackTime')
-            }
-            config['data'].append(data)
-        with open ("export.json", "w", encoding="utf-8") as file:
-            json.dump(config, file, indent=4, ensure_ascii=False)
 
 # 循环查询
 def poll(tk):

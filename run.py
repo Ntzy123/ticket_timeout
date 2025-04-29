@@ -11,7 +11,7 @@ if __name__ == '__main__':
     t = threading.Thread(target=poll,args=(tk,))
     while True:
         tk.load(".config.json")
-        tk.query_timeout()
+        tk.query_timeout_pm()
         time.sleep(60)
     
     #print(tk.data)
