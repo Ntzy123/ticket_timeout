@@ -1,24 +1,27 @@
 # ticket_timeout_pm.py
 
 import time, threading
-from lib.ticket import Ticket, poll
+from lib.ticket import Ticket
 
+content = None
 lock = threading.Lock()
 
 # 循环查询
 def poll(tk):
     while True:
-        time.sleep(300)
+        global content
         with lock:
             content = tk.query(time_range="today")
+        print(content)
+        time.sleep(300)
 
 def ticket_timeout_pm():
     tk = Ticket()
     tk.load(".config.json")
-    content = tk.query(time_range="today")
-    print(content)
-    t = threading.Thread(target=poll,args=(tk,))
+    t = threading.Thread(target=poll, args=(tk,), daemon=True)
     t.start()
+    while content != None:
+        time.sleep(1)
     while True:
         with lock:
             tk.load(".config.json")

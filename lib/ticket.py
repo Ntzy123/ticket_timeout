@@ -1,6 +1,6 @@
 # ticket.py
 
-import json, requests, time
+import json, requests
 from datetime import date, datetime, timedelta
 
 class Ticket:

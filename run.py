@@ -1,7 +1,5 @@
 # run.py
 
-import time, threading
-from lib.ticket import Ticket, poll
 from feature.ticket_timeout_pm import ticket_timeout_pm
 
 

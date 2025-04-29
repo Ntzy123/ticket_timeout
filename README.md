@@ -30,7 +30,24 @@
      
      - 遍历self.data，利用datetime比较时间，将单子出现10分钟未指派的FM工单存入ticket_timeout
 
-## ticket_timeout_pm.py
+ 
 
-- ## def ticket_timeout_pm
-  - 123
+## ticket_timeout_pm.py PM工单超时提醒库
+
+- #### def poll(tk): # 循环执行tk.query查询
+  
+  - 循环执行tk.query查询，每10分钟一次
+
+- #### def ticket_timeout_pm(): # 主程序
+  
+  - 定义tk，初始化一次之后进行双线程：**待做**（目前是threading + 主线程，未来要改成双线程）
+    
+    1. 每10分钟查询一次工单信息
+    
+    2. 每1分钟判断一次工单是否超时
+  
+  - 将tk.query_timeout返回的 {"num", "data"[]} 进行数据处理，当num > 0时语音提醒（暂做print输出作为test）
+
+## ticket_timeout_fm.py FM工单超时提醒库
+
+- #### def ticket_timeout(): # 主程序
