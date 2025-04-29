@@ -2,10 +2,17 @@
 
 import time, threading
 from lib.ticket import Ticket, poll
+from feature.ticket_timeout_pm import ticket_timeout_pm
 
 
 if __name__ == '__main__':
-    tk = Ticket()
+    ticket_timeout_pm()
+    
+    
+    
+    
+    # 仅测试
+    """tk = Ticket()
     tk.load(".config.json")
     tk.query()
     t = threading.Thread(target=poll,args=(tk,))
@@ -14,4 +21,4 @@ if __name__ == '__main__':
         tk.query_timeout_pm()
         time.sleep(60)
     
-    #print(tk.data)
+    #print(tk.data)"""
