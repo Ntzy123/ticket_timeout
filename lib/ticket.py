@@ -33,12 +33,15 @@ class Ticket:
     def query(self, serach=None, status=None, fm_type=None, ticket_type=None, time_range=None):
         # 处理传入参数写入self.json
         input_param = [serach, status, fm_type, ticket_type, time_range]
-        target_param = ["workorderTitle", "workorderStatus", "fmWoType", ["workorderStatus", "type"], ["date1", "startTime", "endTime"]]
+        target_param = ["workorderTitle", "workorderStatus", "fmWoType", "workOrderTypeNoList", ["date1", "startTime", "endTime"]]
         workorderTitle = ""
         for i, key in enumerate(target_param):
             if i == 0 and input_param[i] != None:  # 处理工单标题
                 workorderTitle = input_param[i]
-            elif i == 3 and input_param[i] != None: pass # 处理工单status
+            elif i == 1 and input_param[i] != None:  # 处理工单status
+                self.json[key] = input_param[i]
+            elif i == 3 and input_param[i] != None:  # 处理任务类型
+                self.json[key] = input_param[i]
             elif i == 4 and input_param[i] != None:  # 处理时间范围
                 if time_range == "today":  # 处理时间范围为今天
                     time_range = [str(date.today()), str(date.today())]
@@ -49,7 +52,7 @@ class Ticket:
                 self.json[key[2]] = end
             elif input_param[i] != None:   # 处理其他参数
                 self.json[key] = input_param[i]
-
+        print(self.json)
         # 发起POST请求并存储
         res = requests.post(self.url, json=self.json, headers=self.headers)
         self.data = res.json()
@@ -115,14 +118,14 @@ class Ticket:
     # 子方法 FM工单20分钟超时提醒
     def _timeout_fm(self, record, timeout_ticket):
         current_time = datetime.now()
-        target_time = datetime.strptime(record['feedBackTime'], "%Y-%m-%d %H:%M:%S")
-        alert_time = target_time - timedelta(minutes=20)
+        target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
+        alert_time = target_time + timedelta(minutes=10)
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
                 'workorderTitle': record.get('workorderTitle'),
                 'acceptName': record.get('acceptName'),
-                'feedBackTime': record.get('workorderTitle')
+                'feedBackTime': record.get('feedBackTime')
             }
             timeout_ticket['data'].append(data)
 
@@ -136,21 +139,6 @@ class Ticket:
             data = {
                 'workorderTitle': record.get('workorderTitle'),
                 'acceptName': record.get('acceptName'),
-                'feedBackTime': record.get('workorderTitle')
+                'feedBackTime': record.get('feedBackTime')
             }
             timeout_ticket['data'].append(data)
-
-
-"""         
-if __name__ == '__main__':
-    tk = Ticket()
-    tk.load(".config.json")
-    tk.query()
-    t = threading.Thread(target=poll,args=(tk,))
-    while True:
-        tk.load(".config.json")
-        tk.query_timeout()
-        time.sleep(60)
-    
-    #pprint(tk.config)
-"""
