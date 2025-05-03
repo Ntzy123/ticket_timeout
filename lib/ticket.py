@@ -95,7 +95,6 @@ class Ticket:
             'num': '',
             'data': []
         }
-        print (timeout_ticket)
         for record in self.data['data']['records']:
             if fm_type == "od" or fm_type == "OD":
                 self._timeout_od(record, timeout_ticket)
