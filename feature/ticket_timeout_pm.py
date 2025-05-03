@@ -23,8 +23,8 @@ def loop_query_timeout(tk):
                 
                 if int(ticket_timeout['num']) >= 1:
                     print(f"你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！")
-                else:
-                    print("暂无即将超时的周期性工单")
+            else:
+                print("暂无即将超时的周期性工单")
         time.sleep(60)
 
 def ticket_timeout_pm():
