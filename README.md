@@ -34,20 +34,49 @@
 
 ## ticket_timeout_pm.py PM工单超时提醒库
 
-- #### def poll(tk): # 循环执行tk.query查询
+- #### def query(tk): # 循环执行tk.query查询
   
-  - 循环执行tk.query查询，每10分钟一次
+  - 循环执行tk.query查询，每1小时一次
 
-- #### def ticket_timeout_pm(): # 主程序
+- #### def query_timeout(tk): # 循环执行tk.query_timeout查询工单超时
+
+  - 循环执行tk.query_timeout查询超时工单，每分钟一次
+
+
+
+## ticket_timeout_od.py FM工单超时提醒库
+
+- #### def query(tk): # 循环执行tk.query查询
   
-  - 定义tk，初始化一次之后进行双线程：**待做**（目前是threading + 主线程，未来要改成双线程）
-    
-    1. 每10分钟查询一次工单信息
-    
-    2. 每1分钟判断一次工单是否超时
-  
-  - 将tk.query_timeout返回的 {"num", "data"[]} 进行数据处理，当num > 0时语音提醒（暂做print输出作为test）
+  - 循环执行tk.query查询，每2分钟一次
 
-## ticket_timeout_fm.py FM工单超时提醒库
+- #### def query_timeout(tk): # 循环执行tk.query_timeout查询工单超时
 
-- #### def ticket_timeout(): # 主程序
+  - 循环执行tk.query_timeout查询超时工单，每分钟一次
+
+
+
+## run.py 主入口
+
+-   #### 子线程用方法
+
+    1.  def tkpm_query
+
+    2.  def tkpm_query_timeout
+
+    3.  def tkod_query
+
+    4.  def tkod_query_timeout
+
+-   #### 主进程入口
+
+    -   将tkpm和tkod定义出来，分别用threading启动query，用tkinter的after启动query_timeout，然后启动tkinter，其中两个query_timeout内里写了messagebox弹窗
+
+### 待做：
+
+1. _query查询里应该对传入参数进行处理，将抽象参数转为可读参数_
+
+2. _OD工单里设置工单“不再提醒”接口_
+
+3. *隐藏启动窗口，做成托盘*
+
