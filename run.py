@@ -13,10 +13,10 @@ def od():
 
 
 if __name__ == '__main__':
-    t1 = thrading.Thread(target=pm, daemon=True)
-    t2 = thrading.Thread(target=od, daemon=True)
+    t1 = threading.Thread(target=pm, daemon=True)
+    t2 = threading.Thread(target=od, daemon=True)
     
-    t1.start
-    t2.start
-    t1.join()
-    t2.join()
+    t1.start()
+    t2.start()
+    while True:
+        pass

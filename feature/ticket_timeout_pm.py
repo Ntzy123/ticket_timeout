@@ -19,16 +19,16 @@ def loop_query_timeout(tk):
     while True:
         with lock:
             tk.load(".config.json")
-            print (datetime.now())
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if content['msg'] == "success":
                 ticket_timeout = tk.query_timeout("pm")
                 
                 if int(ticket_timeout['num']) >= 1:
-                    print(f"你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！")
+                    print(f"{current_time}\n你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！\n\n")
                 else:
-                    print("暂无即将超时的周期性工单")
+                    print(f"{current_time}\n暂无即将超时的周期性工单\n\n")
             else:
-                print("暂无即将超时的周期性工单")
+                print(f"{current_time}\n暂无即将超时的周期性工单\n\n")
         time.sleep(300)
 
 def ticket_timeout_pm():
