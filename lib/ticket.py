@@ -97,8 +97,8 @@ class Ticket:
             'data': []
         }
         for record in self.data['data']['records']:
-            if fm_type == "fm" or fm_type == "FM":
-                self._timeout_fm(record, timeout_ticket)
+            if fm_type == "od" or fm_type == "OD":
+                self._timeout_od(record, timeout_ticket)
             elif fm_type == "pm" or fm_type == "PM":
                 self._timeout_pm(record, timeout_ticket)
             """ 测试用
@@ -115,15 +115,16 @@ class Ticket:
         timeout_ticket['num'] = len(timeout_ticket['data'])
         return timeout_ticket
 
-    # 子方法 FM工单20分钟超时提醒
-    def _timeout_fm(self, record, timeout_ticket):
+    # 子方法 OD工单20分钟超时提醒
+    def _timeout_od(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
         alert_time = target_time + timedelta(minutes=10)
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
-                'workorderTitle': record.get('workorderTitle'),
+                'workorderNo': record.get('workorderNo')
+                'workorderDescription': record.get('workorderDescription'),
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime')
             }
@@ -137,7 +138,8 @@ class Ticket:
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
-                'workorderTitle': record.get('workorderTitle'),
+                'workorderNo': record.get('workorderNo')
+                'workorderDescription': record.get('workorderDescription'),
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime')
             }

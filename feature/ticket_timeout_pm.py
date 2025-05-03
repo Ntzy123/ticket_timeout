@@ -13,10 +13,7 @@ def loop_query(tk):
         with lock:
             content = tk.query(time_range="today")
             print(content)
-        if content['msg'] == "success":
-            time.sleep(3600)
-        else:
-            time.sleep(300)
+        time.sleep(1800)
         
 def loop_query_timeout(tk):
     while True:
@@ -28,6 +25,8 @@ def loop_query_timeout(tk):
 
             if int(ticket_timeout['num']) >= 1:
                 print(f"你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！")
+            else:
+                print("暂无即将超时的周期性工单")
         time.sleep(60)
 
 def ticket_timeout_pm():

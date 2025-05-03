@@ -1,4 +1,4 @@
-# ticket_timeout_fm.py
+# ticket_timeout_od.py
 
 import time, threading
 from lib.ticket import Ticket
@@ -12,7 +12,6 @@ def loop_query(tk):
     while True:
         with lock:
             content = tk.query(status="['1', '1001', '1002', '1003', '1004', '1005', '1013', '1014', '4040']", fm_type="OD", ticket_type=[], time_range="today")
-            print(content)
         time.sleep(120)
         
 def loop_query_timeout(tk):
@@ -20,14 +19,15 @@ def loop_query_timeout(tk):
         with lock:
             tk.load(".config.json")
             if content['msg'] == "success":
-                ticket_timeout = tk.query_timeout("fm")
-                print(ticket_timeout)
+                ticket_timeout = tk.query_timeout("od")
 
             if int(ticket_timeout['num']) >= 1:
-                print(f"你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！")
+                print(f"你有{ticket_timeout['num']}条临时性工单即将超时，请及时处理！")
+            else:
+                print("暂无即将超时的临时性工单")
         time.sleep(60)
 
-def ticket_timeout_fm():
+def ticket_timeout_od():
     tk = Ticket()
     tk.load(".config.json")
     t1 = threading.Thread(target=loop_query, args=(tk,), daemon=True)
