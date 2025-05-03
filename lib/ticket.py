@@ -52,7 +52,6 @@ class Ticket:
                 self.json[key[2]] = end
             elif input_param[i] != None:   # 处理其他参数
                 self.json[key] = input_param[i]
-        print(self.json)
         # 发起POST请求并存储
         res = requests.post(self.url, json=self.json, headers=self.headers)
         self.data = res.json()
@@ -96,6 +95,7 @@ class Ticket:
             'num': '',
             'data': []
         }
+        print (timeout_ticket)
         for record in self.data['data']['records']:
             if fm_type == "od" or fm_type == "OD":
                 self._timeout_od(record, timeout_ticket)
@@ -123,7 +123,7 @@ class Ticket:
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
-                'workorderNo': record.get('workorderNo')
+                'workorderNo': record.get('workorderNo'),
                 'workorderDescription': record.get('workorderDescription'),
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime')
@@ -138,7 +138,7 @@ class Ticket:
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
-                'workorderNo': record.get('workorderNo')
+                'workorderNo': record.get('workorderNo'),
                 'workorderDescription': record.get('workorderDescription'),
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime')
