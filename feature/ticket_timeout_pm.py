@@ -1,6 +1,7 @@
 # ticket_timeout_pm.py
 
 import time, threading
+from datetime import datetime
 from lib.ticket import Ticket
 
 content = None
@@ -18,6 +19,7 @@ def loop_query_timeout(tk):
     while True:
         with lock:
             tk.load(".config.json")
+            print (datetime.now())
             if content['msg'] == "success":
                 ticket_timeout = tk.query_timeout("pm")
                 
@@ -25,7 +27,7 @@ def loop_query_timeout(tk):
                     print(f"你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！")
             else:
                 print("暂无即将超时的周期性工单")
-        time.sleep(60)
+        time.sleep(300)
 
 def ticket_timeout_pm():
     tk = Ticket()

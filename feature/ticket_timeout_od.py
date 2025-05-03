@@ -1,6 +1,7 @@
 # ticket_timeout_od.py
 
 import time, threading
+from datetime import datetime
 from lib.ticket import Ticket
 
 content = None
@@ -18,13 +19,15 @@ def loop_query_timeout(tk):
     while True:
         with lock:
             tk.load(".config.json")
+            print (datetime.now())
             if content['msg'] == "success":
                 ticket_timeout = tk.query_timeout("od")
+
                 if int(ticket_timeout['num']) >= 1:
                     print(f"你有{ticket_timeout['num']}条临时性工单即将超时，请及时处理！")
             else:
                 print("暂无即将超时的临时性工单")
-        time.sleep(60)
+        time.sleep(300)
 
 def ticket_timeout_od():
     tk = Ticket()

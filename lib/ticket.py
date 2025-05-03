@@ -44,7 +44,7 @@ class Ticket:
                 self.json[key] = input_param[i]
             elif i == 4 and input_param[i] != None:  # 处理时间范围
                 if time_range == "today":  # 处理时间范围为今天
-                    time_range = [str(date.today()), str(date.today())]
+                    time_range = [str(date.today() - timedelta(days=1)), str(date.today())]
                 self.json[key[0]] = time_range
                 start = f"{time_range[0]} 00:00:00"
                 end = f"{time_range[1]} 23:59:59"
@@ -118,7 +118,7 @@ class Ticket:
     def _timeout_od(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
-        alert_time = target_time + timedelta(minutes=10)
+        alert_time = target_time + timedelta(minutes=1)
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
