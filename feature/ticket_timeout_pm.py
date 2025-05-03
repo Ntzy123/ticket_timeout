@@ -4,43 +4,31 @@ import time, threading
 from datetime import datetime
 from lib.ticket import Ticket
 
-content = None
-lock = threading.Lock()
 
-# 循环查询
-def loop_query(tk):
-    global content
-    while True:
-        with lock:
-            content = tk.query(time_range="today")
-        time.sleep(1800)
-        
-def loop_query_timeout(tk):
-    while True:
-        with lock:
-            tk.load(".config.json")
+class TicketTimeoutPM:
+    # 构造函数
+    def __init__(self):
+        self.tk = Ticket()
+        self.content = None
+        self.lock = threading.Lock()
+
+    # 循环查询
+    def query(self):
+        with self.lock:
+            self.tk.load(".config.json")
+            self.content = self.tk.query(time_range="today")
+            
+    def query_timeout(self):
+        with self.lock:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if content['msg'] == "success":
-                ticket_timeout = tk.query_timeout("pm")
-                
+            if self.content['msg'] == "success":
+                ticket_timeout = self.tk.query_timeout("pm")
+       
                 if int(ticket_timeout['num']) >= 1:
                     print(f"{current_time}\n你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！\n\n")
                 else:
                     print(f"{current_time}\n暂无即将超时的周期性工单\n\n")
             else:
                 print(f"{current_time}\n暂无即将超时的周期性工单\n\n")
-        time.sleep(300)
-
-def ticket_timeout_pm():
-    tk = Ticket()
-    tk.load(".config.json")
-    t1 = threading.Thread(target=loop_query, args=(tk,), daemon=True)
-    t1.start()
-    t2 = threading.Thread(target=loop_query_timeout, args=(tk,), daemon=True)
-    while content != None:
-        time.sleep(1)
-    t2.start()
-
-    while True:
-        pass
+            return ticket_timeout
     
