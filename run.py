@@ -1,9 +1,9 @@
 # run.py
 
-import threading, time, signal, sys, easygui
+import threading, time, signal, sys, ctypes
 from datetime import datetime
-from gui.main_window import MainWindow
-from tkinter import messagebox
+# from gui.main_window import MainWindow
+# from tkinter import messagebox
 from feature.ticket_timeout_pm import TicketTimeoutPM
 from feature.ticket_timeout_od import TicketTimeoutOD
 
@@ -15,14 +15,14 @@ def fetch_time():
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return current_time
 
-def handle_sigint(signum, frame):
-    print(f"[INFO] [{fetch_time()}] 程序退出中...")
+def handle_signal(signum, frame):
+    print(f"[INFO]    [{fetch_time()}] 程序退出中...")
     time.sleep(1)
     sys.exit(0)
 
 def msg_box(msg):
     def run_msgbox(msg):
-        easygui.msgbox(msg, title="提示")
+        ctypes.windll.user32.MessageBoxW(0, msg, "提示", 0)
     thread = threading.Thread(target=run_msgbox, args=(msg,), daemon=True)
     thread.start()
 
@@ -45,7 +45,8 @@ def tkpm_query(tkpm):
         file.write(log)
     pm_data = {}
 
-    time.sleep(300)  
+    time.sleep(300)
+    tkpm_query(tkpm)
 
 def tkod_query(tkod):
     tkod.query()
@@ -67,16 +68,18 @@ def tkod_query(tkod):
             file.write(log)
     od_data = {}
 
-    time.sleep(60)    
+    time.sleep(60)
+    tkod_query(tkod)  
 
 
 if __name__ == '__main__':
     print("=" * 50)
-    print(f"[INFO] [{fetch_time()}] 程序启动中...")
+    print(f"[INFO]    [{fetch_time()}] 程序启动中...")
     tkpm = TicketTimeoutPM()
     tkod = TicketTimeoutOD()
-    print(f"[INFO] [{fetch_time()}] 正在加载配置...")
-    signal.signal(signal.SIGINT, handle_sigint)
+    print(f"[INFO]    [{fetch_time()}] 正在加载配置...")
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
     t1 = threading.Thread(target=tkpm_query, args=(tkpm,), daemon=True)
     t2 = threading.Thread(target=tkod_query, args=(tkod,), daemon=True)
     
