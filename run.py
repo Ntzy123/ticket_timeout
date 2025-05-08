@@ -11,11 +11,13 @@ pm_data = {}
 od_data = {}
 
 
+def fetch_time():
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return current_time
+
 def tkpm_query(tkpm):
     tkpm.query()
-    time.sleep(300)    
 
-def tkpm_query_timeout(tkpm):
     global pm_data
     while tkpm.content == None:
         pass
@@ -31,13 +33,12 @@ def tkpm_query_timeout(tkpm):
         with open("ticket_timeout.log", "a") as file:
             file.write(log2)
     pm_data = {}
-    window.after(300000, tkpm_query_timeout, tkpm)
+
+    time.sleep(300)  
 
 def tkod_query(tkod):
     tkod.query()
-    time.sleep(60)    
 
-def tkod_query_timeout(tkod):
     global od_data
     while tkod.content == None:
         pass
@@ -53,17 +54,22 @@ def tkod_query_timeout(tkod):
         with open("ticket_timeout.log", "a") as file:
             file.write(log2)
     od_data = {}
-    window.after(60000, tkod_query_timeout, tkod)
+
+    time.sleep(60)    
+
 
 if __name__ == '__main__':
+    print("=" * 50)
+    print(f"[INFO] [{fetch_time()}] 程序启动中...")
     tkpm = TicketTimeoutPM()
     tkod = TicketTimeoutOD()
+    print(f"[INFO] [{fetch_time()}] 正在加载配置...")
     t1 = threading.Thread(target=tkpm_query, args=(tkpm,), daemon=True)
     t2 = threading.Thread(target=tkod_query, args=(tkod,), daemon=True)
-    t1.start()
-    t2.start()
     
     window = MainWindow()
-    window.after(1000, tkpm_query_timeout, tkpm)
-    window.after(1000, tkod_query_timeout, tkod)
+    t1.start()
+    t2.start()
+    print(f"[SUCCESS] [{fetch_time()}] 程序启动完成！")
+    print("=" * 50)
     window.mainloop()

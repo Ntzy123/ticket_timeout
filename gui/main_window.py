@@ -17,8 +17,7 @@ class MainWindow(tk.Tk):
         y = (screen_height - window_height) // 2
         self.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.resizable(False, False)
-
-
+        self.withdraw()
 
 
 
