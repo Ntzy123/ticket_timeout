@@ -13,16 +13,15 @@ od_data = {}
 
 def tkpm_query(tkpm):
     tkpm.query()
-    time.sleep(1800)    
+    time.sleep(300)    
 
 def tkpm_query_timeout(tkpm):
     global pm_data
     while tkpm.content == None:
         pass
-    tkpm.content != None
     pm_data = tkpm.query_timeout()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log1 = f"{current_time}\n你有{pm_data['num']}条临时性工单即将超时，请及时处理！\n\n"
+    log1 = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"
     log2 = f"{current_time}\n暂无即将超时的周期性工单\n\n"
     if int(pm_data['num']) > 0:
         with open("ticket_timeout.log", "a") as file:
@@ -32,21 +31,20 @@ def tkpm_query_timeout(tkpm):
         with open("ticket_timeout.log", "a") as file:
             file.write(log2)
     pm_data = {}
-    window.after(60000, tkpm_query_timeout, tkpm)
+    window.after(300000, tkpm_query_timeout, tkpm)
 
-def tkod_query(tkpm):
+def tkod_query(tkod):
     tkod.query()
-    time.sleep(120)    
+    time.sleep(60)    
 
-def tkod_query_timeout(tkpm):
+def tkod_query_timeout(tkod):
     global od_data
-    while tkpm.content == None:
+    while tkod.content == None:
         pass
-    tkod.content != None
     od_data = tkod.query_timeout()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log1 = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"
-    log2 = f"{current_time}\n暂无即将超时的周期性工单\n\n"
+    log2 = f"{current_time}\n暂无即将超时的临时性工单\n\n"
     if int(od_data['num']) > 0:
         with open("ticket_timeout.log", "a") as file:
             file.write(log1)
@@ -55,7 +53,7 @@ def tkod_query_timeout(tkpm):
         with open("ticket_timeout.log", "a") as file:
             file.write(log2)
     od_data = {}
-    window.after(60000, tkod_query_timeout, tkpm)
+    window.after(60000, tkod_query_timeout, tkod)
 
 if __name__ == '__main__':
     tkpm = TicketTimeoutPM()
@@ -69,4 +67,3 @@ if __name__ == '__main__':
     window.after(1000, tkpm_query_timeout, tkpm)
     window.after(1000, tkod_query_timeout, tkod)
     window.mainloop()
-    messagebox.showinfo("提示", "测试成功")
