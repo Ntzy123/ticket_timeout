@@ -114,7 +114,7 @@ class Ticket:
         timeout_ticket['num'] = len(timeout_ticket['data'])
         return timeout_ticket
 
-    # 子方法 OD工单20分钟超时提醒
+    # 子方法 OD工单指派超时提醒
     def _timeout_od(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
@@ -129,11 +129,11 @@ class Ticket:
             }
             timeout_ticket['data'].append(data)
 
-    # 子方法 PM工单20分钟超时提醒
+    # 子方法 PM工单30分钟超时提醒
     def _timeout_pm(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['feedBackTime'], "%Y-%m-%d %H:%M:%S")
-        alert_time = target_time - timedelta(minutes=20)
+        alert_time = target_time - timedelta(minutes=30)
         if current_time >= alert_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
