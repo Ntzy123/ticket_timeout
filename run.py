@@ -22,8 +22,15 @@ def tkpm_query_timeout(tkpm):
     tkpm.content != None
     pm_data = tkpm.query_timeout()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if pm_data['num'] > 0:
-        messagebox.showinfo("提示" ,f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n")
+    log1 = f"{current_time}\n你有{pm_data['num']}条临时性工单即将超时，请及时处理！\n\n"
+    log2 = f"{current_time}\n暂无即将超时的周期性工单\n\n"
+    if int(pm_data['num']) > 0:
+        with open("ticket_timeout.log", "a") as file:
+            file.write(log1)
+        messagebox.showinfo("提示" , log1)
+    else:
+        with open("ticket_timeout.log", "a") as file:
+            file.write(log2)
     pm_data = {}
     window.after(60000, tkpm_query_timeout, tkpm)
 
@@ -38,8 +45,15 @@ def tkod_query_timeout(tkpm):
     tkod.content != None
     od_data = tkod.query_timeout()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if od_data['num'] > 0:
-        messagebox.showinfo("提示" ,f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n")
+    log1 = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"
+    log2 = f"{current_time}\n暂无即将超时的周期性工单\n\n"
+    if int(od_data['num']) > 0:
+        with open("ticket_timeout.log", "a") as file:
+            file.write(log1)
+        messagebox.showinfo("提示" , log1)
+    else:
+        with open("ticket_timeout.log", "a") as file:
+            file.write(log2)
     od_data = {}
     window.after(60000, tkod_query_timeout, tkpm)
 

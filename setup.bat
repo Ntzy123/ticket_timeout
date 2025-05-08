@@ -39,7 +39,7 @@ if errorlevel 2 goto exit
 if errorlevel 1 goto run_command
 
 :run_command
-pyinstaller --onefile --name=auto-excel-schedule main.py
+pyinstaller --noconsole --onefile --name=ticket_timeout run.py
     echo 打包完成，请按任意键继续...
     pause >nul
 exit

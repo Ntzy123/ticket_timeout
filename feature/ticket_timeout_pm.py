@@ -19,16 +19,21 @@ class TicketTimeoutPM:
             self.content = self.tk.query(time_range="today")
             
     def query_timeout(self):
+        ticket_timeout = {
+            'num': '0',
+            'data': []
+            }
         with self.lock:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if self.content['msg'] == "success":
                 ticket_timeout = self.tk.query_timeout("pm")
-       
+            """ 测试输出
                 if int(ticket_timeout['num']) >= 1:
                     print(f"{current_time}\n你有{ticket_timeout['num']}条周期性工单即将超时，请及时处理！\n\n")
                 else:
                     print(f"{current_time}\n暂无即将超时的周期性工单\n\n")
             else:
                 print(f"{current_time}\n暂无即将超时的周期性工单\n\n")
+            """
             return ticket_timeout
     
