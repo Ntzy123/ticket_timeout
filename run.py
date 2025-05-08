@@ -1,6 +1,6 @@
 # run.py
 
-import threading, time
+import threading, time, signal, sys, easygui
 from datetime import datetime
 from gui.main_window import MainWindow
 from tkinter import messagebox
@@ -15,6 +15,17 @@ def fetch_time():
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return current_time
 
+def handle_sigint(signum, frame):
+    print(f"[INFO] [{fetch_time()}] 程序退出中...")
+    time.sleep(1)
+    sys.exit(0)
+
+def msg_box(msg):
+    def run_msgbox(msg):
+        easygui.msgbox(msg, title="提示")
+    thread = threading.Thread(target=run_msgbox, args=(msg,), daemon=True)
+    thread.start()
+
 def tkpm_query(tkpm):
     tkpm.query()
 
@@ -23,15 +34,15 @@ def tkpm_query(tkpm):
         pass
     pm_data = tkpm.query_timeout()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log1 = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"
-    log2 = f"{current_time}\n暂无即将超时的周期性工单\n\n"
+    log = ""
     if int(pm_data['num']) > 0:
-        with open("ticket_timeout.log", "a") as file:
-            file.write(log1)
-        messagebox.showinfo("提示" , log1)
+        log = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"        
+        msg_box(log)
     else:
-        with open("ticket_timeout.log", "a") as file:
-            file.write(log2)
+        log = f"{current_time}\n暂无即将超时的周期性工单\n\n"
+    print(log)
+    with open("ticket_timeout.log", "a") as file:
+        file.write(log)
     pm_data = {}
 
     time.sleep(300)  
@@ -44,15 +55,16 @@ def tkod_query(tkod):
         pass
     od_data = tkod.query_timeout()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log1 = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"
-    log2 = f"{current_time}\n暂无即将超时的临时性工单\n\n"
+    log = ""
     if int(od_data['num']) > 0:
-        with open("ticket_timeout.log", "a") as file:
-            file.write(log1)
-        messagebox.showinfo("提示" , log1)
+        log = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"        
+        msg_box(log)
     else:
-        with open("ticket_timeout.log", "a") as file:
-            file.write(log2)
+        log = f"{current_time}\n暂无即将超时的临时性工单\n\n"
+    # 写入日志
+    print(log)
+    with open("ticket_timeout.log", "a") as file:
+            file.write(log)
     od_data = {}
 
     time.sleep(60)    
@@ -64,12 +76,15 @@ if __name__ == '__main__':
     tkpm = TicketTimeoutPM()
     tkod = TicketTimeoutOD()
     print(f"[INFO] [{fetch_time()}] 正在加载配置...")
+    signal.signal(signal.SIGINT, handle_sigint)
     t1 = threading.Thread(target=tkpm_query, args=(tkpm,), daemon=True)
     t2 = threading.Thread(target=tkod_query, args=(tkod,), daemon=True)
     
-    window = MainWindow()
+    #window = MainWindow()
     t1.start()
     t2.start()
     print(f"[SUCCESS] [{fetch_time()}] 程序启动完成！")
     print("=" * 50)
-    window.mainloop()
+    while True:
+        time.sleep(1)
+    #window.mainloop()
