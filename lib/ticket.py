@@ -127,7 +127,15 @@ class Ticket:
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime')
             }
-            timeout_ticket['data'].append(data)
+            # 过滤不需要提醒的功能
+            try:  # 如果文件不存在则不过滤
+                with open ("ignore.txt", "r", encoding="utf-8") as file:
+                    ignores = file.read()
+                    for ignore in ignores.split("\n"):
+                        if data['workorderNo'] != ignore:
+                            timeout_ticket['data'].append(data)
+            except FileNotFoundError:
+                timeout_ticket['data'].append(data)
 
     # 子方法 PM工单30分钟超时提醒
     def _timeout_pm(self, record, timeout_ticket):
