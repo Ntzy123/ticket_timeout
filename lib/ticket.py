@@ -114,12 +114,12 @@ class Ticket:
         timeout_ticket['num'] = len(timeout_ticket['data'])
         return timeout_ticket
 
-    # 子方法 OD工单指派超时提醒
+    # 子方法 OD工单指派超时提醒(单生成30分钟内)
     def _timeout_od(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
-        alert_time = target_time + timedelta(minutes=1)
-        if current_time >= alert_time:
+        alert_time = target_time + timedelta(minutes=30)
+        if alert_time >= current_time >= target_time:
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
                 'workorderNo': record.get('workorderNo'),
@@ -131,13 +131,16 @@ class Ticket:
             try:  # 如果文件不存在则不过滤
                 with open ("ignore.txt", "r", encoding="utf-8") as file:
                     ignores = file.read()
+                    is_add = True
                     for ignore in ignores.split("\n"):
-                        if data['workorderNo'] != ignore:
-                            timeout_ticket['data'].append(data)
+                        if data['workorderNo'] == ignore:
+                            is_add = False
+                    if is_add == True:
+                        timeout_ticket['data'].append(data)
             except FileNotFoundError:
                 timeout_ticket['data'].append(data)
 
-    # 子方法 PM工单30分钟超时提醒
+    # 子方法 PM工单超时提醒（超时前30分钟）
     def _timeout_pm(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['feedBackTime'], "%Y-%m-%d %H:%M:%S")
