@@ -68,7 +68,7 @@ def tkod_query(tkod):
             file.write(log)
     od_data = {}
 
-    time.sleep(120)
+    time.sleep(300)
     tkod_query(tkod)  
 
 

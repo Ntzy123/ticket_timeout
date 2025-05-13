@@ -119,7 +119,7 @@ class Ticket:
         current_time = datetime.now()
         target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
         alert_time = target_time + timedelta(minutes=30)
-        if alert_time >= current_time >= target_time:
+        if alert_time >= current_time >= target_time + timedelta(minutes=5):
             # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
                 'workorderNo': record.get('workorderNo'),
