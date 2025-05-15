@@ -1,6 +1,6 @@
 # run.py
 
-import threading, time, signal, sys, ctypes
+import threading, time, signal, sys, os, ctypes, pygame
 from datetime import datetime
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
@@ -10,6 +10,9 @@ from feature.ticket_timeout_od import TicketTimeoutOD
 pm_data = {}
 od_data = {}
 
+sound_path = os.path.join(sys._MEIPASS, "res/sound.mp3")
+pygame.mixer.init()
+pygame.mixer.music.load(sound_path)
 
 def fetch_time():
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -22,6 +25,7 @@ def handle_signal(signum, frame):
 
 def msg_box(msg):
     def run_msgbox(msg):
+        pygame.mixer.music.play()
         ctypes.windll.user32.MessageBoxW(0, msg, "提示", 0)
     thread = threading.Thread(target=run_msgbox, args=(msg,), daemon=True)
     thread.start()
