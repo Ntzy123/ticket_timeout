@@ -1,6 +1,6 @@
 # run.py
 
-import threading, time, signal, sys, os, ctypes, pygame
+import threading, time, signal, sys, os, ctypes, pygame, argparse
 from datetime import datetime
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
@@ -9,20 +9,32 @@ from feature.ticket_timeout_od import TicketTimeoutOD
 
 pm_data = {}
 od_data = {}
+time_interval = 0
 
 sound_path = os.path.join(sys._MEIPASS, "res/sound.mp3")
 pygame.mixer.init()
 pygame.mixer.music.load(sound_path)
 
+# 初始化
+def init():
+    global time_interval
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-t", "--time", type=int, default=300, help="临时性工单查询间隔")
+    args = parser.parse_args()
+    time_interval = args.time
+
+# 获取当前时间
 def fetch_time():
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return current_time
 
+# 处理退出信号
 def handle_signal(signum, frame):
     print(f"[INFO]    [{fetch_time()}] 程序退出中...")
     time.sleep(1)
     sys.exit(0)
 
+# 信息提示框
 def msg_box(msg):
     def run_msgbox(msg):
         pygame.mixer.music.play()
@@ -30,6 +42,7 @@ def msg_box(msg):
     thread = threading.Thread(target=run_msgbox, args=(msg,), daemon=True)
     thread.start()
 
+# 周期性工单查询
 def tkpm_query(tkpm):
     tkpm.query()
 
@@ -52,6 +65,7 @@ def tkpm_query(tkpm):
     time.sleep(300)
     tkpm_query(tkpm)
 
+# 临时性工单查询
 def tkod_query(tkod):
     tkod.query()
 
@@ -72,11 +86,12 @@ def tkod_query(tkod):
             file.write(log)
     od_data = {}
 
-    time.sleep(300)
+    time.sleep(time_interval)
     tkod_query(tkod)  
 
 
 if __name__ == '__main__':
+    init()
     print("=" * 50)
     print(f"[INFO]    [{fetch_time()}] 程序启动中...")
     tkpm = TicketTimeoutPM()
