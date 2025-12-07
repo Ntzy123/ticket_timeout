@@ -55,6 +55,10 @@ def tkpm_query(tkpm):
     if int(pm_data['num']) > 0:
         log = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"        
         msg_box(log)
+        data = ''
+        for item in od_data['data']:
+            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n工单超时时间：{item['timeout_time']}\n\n"
+        log = log + data
     else:
         log = f"{current_time}\n暂无即将超时的周期性工单\n\n"
     print(log)
@@ -78,6 +82,10 @@ def tkod_query(tkod):
     if int(od_data['num']) > 0:
         log = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"        
         msg_box(log)
+        data = ''
+        for item in od_data['data']:
+            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n工单超时时间：{item['timeout_time']}\n\n"
+        log = log + data
     else:
         log = f"{current_time}\n暂无即将超时的临时性工单\n\n"
     # 写入日志

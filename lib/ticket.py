@@ -74,7 +74,7 @@ class Ticket:
             print("超时时间：\t", record['feedBackTime'])
             print("\n", "-" * 50, "\n")
             """
-            # 导出已查询工单
+            # 导出已查询工单(data数据没用上/疑似)
             data = {
                 "workorderNo": record.get('workorderNo'),
                 "workorderTitle": record.get('workorderTitle'),
