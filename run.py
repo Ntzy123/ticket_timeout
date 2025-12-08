@@ -11,7 +11,18 @@ pm_data = {}
 od_data = {}
 time_interval = 0
 
-sound_path = os.path.join(sys._MEIPASS, "res/sound.mp3")
+# 获取资源的绝对路径，兼容开发环境和打包后的环境
+def get_resource_path(relative_path):
+    try:
+        # 打包后的环境
+        base_path = sys._MEIPASS
+    except AttributeError:
+        # 开发环境，使用当前文件所在目录
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
+
+sound_path = get_resource_path("res/sound.mp3")
 pygame.mixer.init()
 pygame.mixer.music.load(sound_path)
 
@@ -19,7 +30,7 @@ pygame.mixer.music.load(sound_path)
 def init():
     global time_interval
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--time", type=int, default=300, help="临时性工单查询间隔")
+    parser.add_argument("-t", "--time", type=int, default=120, help="临时性工单查询间隔")
     args = parser.parse_args()
     time_interval = args.time
 
@@ -57,7 +68,7 @@ def tkpm_query(tkpm):
         msg_box(log)
         data = ''
         for item in od_data['data']:
-            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n工单超时时间：{item['timeout_time']}\n\n"
+            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n\n"
         log = log + data
     else:
         log = f"{current_time}\n暂无即将超时的周期性工单\n\n"
@@ -84,7 +95,7 @@ def tkod_query(tkod):
         msg_box(log)
         data = ''
         for item in od_data['data']:
-            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n工单超时时间：{item['timeout_time']}\n\n"
+            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n\n"
         log = log + data
     else:
         log = f"{current_time}\n暂无即将超时的临时性工单\n\n"

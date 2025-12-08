@@ -1,7 +1,10 @@
 # ticket.py
 
-import json, requests
+import json, requests, urllib3
 from datetime import date, datetime, timedelta
+
+# 禁用SSL验证警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class Ticket:
     
@@ -52,8 +55,9 @@ class Ticket:
                 self.json[key[2]] = end
             elif input_param[i] != None:   # 处理其他参数
                 self.json[key] = input_param[i]
+                
         # 发起POST请求并存储
-        res = requests.post(self.url, json=self.json, headers=self.headers)
+        res = requests.post(self.url, json=self.json, headers=self.headers, verify=False)
         self.data = res.json()
 
         # 处理返回数据
