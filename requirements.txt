@@ -1,3 +1,4 @@
 requests
 pygame
+typer
 pyinstaller

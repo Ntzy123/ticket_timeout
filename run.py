@@ -1,6 +1,6 @@
 # run.py
 
-import threading, time, signal, sys, os, ctypes, pygame, argparse
+import threading, time, signal, sys, os, ctypes, pygame, typer
 from datetime import datetime
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
@@ -10,6 +10,7 @@ from feature.ticket_timeout_od import TicketTimeoutOD
 pm_data = {}
 od_data = {}
 time_interval = 0
+
 
 # 获取资源的绝对路径，兼容开发环境和打包后的环境
 def get_resource_path(relative_path):
@@ -27,12 +28,12 @@ pygame.mixer.init()
 pygame.mixer.music.load(sound_path)
 
 # 初始化
-def init():
+"""def init():
     global time_interval
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--time", type=int, default=120, help="临时性工单查询间隔")
     args = parser.parse_args()
-    time_interval = args.time
+    time_interval = args.time"""
 
 # 获取当前时间
 def fetch_time():
@@ -109,8 +110,13 @@ def tkod_query(tkod):
     tkod_query(tkod)  
 
 
-if __name__ == '__main__':
-    init()
+def main(
+    wait_time: int = typer.Option(120, "--time", "-t", help="临时性工单查询间隔")
+):
+    """这是一个工单即将超时弹窗提醒的软件"""
+    global time_interval
+    time_interval = wait_time
+    print(time_interval)
     print("=" * 50)
     print(f"[INFO]    [{fetch_time()}] 程序启动中...")
     tkpm = TicketTimeoutPM()
@@ -121,11 +127,13 @@ if __name__ == '__main__':
     t1 = threading.Thread(target=tkpm_query, args=(tkpm,), daemon=True)
     t2 = threading.Thread(target=tkod_query, args=(tkod,), daemon=True)
     
-    #window = MainWindow()
     t1.start()
     t2.start()
     print(f"[SUCCESS] [{fetch_time()}] 程序启动完成！")
     print("=" * 50)
     while True:
         time.sleep(1)
-    #window.mainloop()
+
+
+if __name__ == '__main__':
+    typer.run(main)
