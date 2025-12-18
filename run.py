@@ -1,6 +1,6 @@
 # run.py
 
-import threading, time, signal, sys, os, ctypes, pygame, typer
+import requests, threading, time, signal, sys, os, ctypes, pygame, typer
 from datetime import datetime
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
@@ -116,7 +116,9 @@ def main(
     """这是一个工单即将超时弹窗提醒的软件"""
     global time_interval
     time_interval = wait_time
-    print(time_interval)
+    url = "http://kyrian.icu:4396/api/get_auth"
+    if requests.get(url).text != "OK":
+            return
     print("=" * 50)
     print(f"[INFO]    [{fetch_time()}] 程序启动中...")
     tkpm = TicketTimeoutPM()
