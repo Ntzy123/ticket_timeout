@@ -14,14 +14,16 @@ time_interval = 0
 
 # 获取资源的绝对路径，兼容开发环境和打包后的环境
 def get_resource_path(relative_path):
-    try:
-        # 打包后的环境
-        base_path = sys._MEIPASS
-    except AttributeError:
-        # 开发环境，使用当前文件所在目录
-        base_path = os.path.abspath(".")
+    if not os.path.isfile("./sound.mp3"):
+        try:
+            # 打包后的环境
+            base_path = sys._MEIPASS
+        except AttributeError:
+            # 开发环境，使用当前文件所在目录
+            base_path = os.path.abspath(".")
     
-    return os.path.join(base_path, relative_path)
+        return os.path.join(base_path, relative_path)
+    return "./sound.mp3"
 
 sound_path = get_resource_path("res/sound.mp3")
 pygame.mixer.init()
