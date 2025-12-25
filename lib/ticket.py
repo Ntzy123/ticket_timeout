@@ -57,8 +57,11 @@ class Ticket:
                 self.json[key] = input_param[i]
                 
         # 发起POST请求并存储
-        res = requests.post(self.url, json=self.json, headers=self.headers, verify=False)
-        self.data = res.json()
+        try:
+            res = requests.post(self.url, json=self.json, headers=self.headers, verify=False)
+            self.data = res.json()
+        except Exception:
+            return {'msg': '请求失败', 'data': []}
 
         # 处理返回数据
         config = {
