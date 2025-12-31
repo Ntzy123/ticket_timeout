@@ -58,58 +58,79 @@ def msg_box(msg):
 
 # 周期性工单查询
 def tkpm_query(tkpm):
-    tkpm.query()
+    while True:
+        try:
+            tkpm.query()
+            
+            global pm_data
+            while tkpm.content == None:
+                time.sleep(1)
+            pm_data = tkpm.query_timeout()
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log = ""
+            if int(pm_data.get['num', 0]) > 0:
+                log = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"        
+                msg_box(log)
+                data = ''
+                for item in pm_data['data']:
+                    data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n\n"
+                log = log + data
+            else:
+                log = f"{current_time}\n暂无即将超时的周期性工单\n\n"
+            print(log)
+            with open("ticket_timeout.log", "a") as file:
+                file.write(log)
+            pm_data = {}
 
-    global pm_data
-    while tkpm.content == None:
-        pass
-    pm_data = tkpm.query_timeout()
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log = ""
-    if int(pm_data['num']) > 0:
-        log = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"        
-        msg_box(log)
-        data = ''
-        for item in od_data['data']:
-            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n\n"
-        log = log + data
-    else:
-        log = f"{current_time}\n暂无即将超时的周期性工单\n\n"
-    print(log)
-    with open("ticket_timeout.log", "a") as file:
-        file.write(log)
-    pm_data = {}
-
-    time.sleep(300)
-    tkpm_query(tkpm)
+            time.sleep(300)
+        except Exception as e:
+            log = f"[ERROR]   [{fetch_time()}] tkpm_query线程异常: {e}\n"
+            log += f"[INFO]    [{fetch_time()}] 正在重启tkpm_query线程..."
+            print(log)
+            with open("ticket_timeout.log", "a") as file:
+                file.write(log)
+            time.sleep(5)
+            continue
 
 # 临时性工单查询
 def tkod_query(tkod):
-    tkod.query()
+    while True:
+        try:
+            tkod.query()
 
-    global od_data
-    while tkod.content == None:
-        pass
-    od_data = tkod.query_timeout()
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log = ""
-    if int(od_data['num']) > 0:
-        log = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"        
-        msg_box(log)
-        data = ''
-        for item in od_data['data']:
-            data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n\n"
-        log = log + data
-    else:
-        log = f"{current_time}\n暂无即将超时的临时性工单\n\n"
-    # 写入日志
-    print(log)
-    with open("ticket_timeout.log", "a") as file:
-            file.write(log)
-    od_data = {}
+            while tkod.content is None:
+                time.sleep(1)
 
-    time.sleep(time_interval)
-    tkod_query(tkod)  
+            global od_data
+            while tkod.content == None:
+                pass
+            od_data = tkod.query_timeout()
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log = ""
+            if int(od_data.get['num', 0]) > 0:
+                log = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"        
+                msg_box(log)
+                data = ''
+                for item in od_data['data']:
+                    data = data + f"{item['workorderDescription']}\n工单编号：{item['workorderNo']}\n接单人：{item['acceptName']}\n超时时间：{item['feedBackTime']}\n\n"
+                log = log + data
+            else:
+                log = f"{current_time}\n暂无即将超时的临时性工单\n\n"
+            # 写入日志
+            print(log)
+            with open("ticket_timeout.log", "a") as file:
+                    file.write(log)
+            od_data = {}
+
+            time.sleep(time_interval)
+        except Exception as e:
+            log = f"[ERROR]   [{fetch_time()}] tkod_query线程异常: {e}"
+            log += f"[INFO]    [{fetch_time()}] 正在重启tkod_query线程..."
+            print(log)
+            with open("ticket_timeout.log", "a") as file:
+                file.write(log)
+            time.sleep(5)
+            continue
 
 
 def main(
