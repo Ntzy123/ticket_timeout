@@ -68,7 +68,7 @@ def tkpm_query(tkpm):
             pm_data = tkpm.query_timeout()
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log = ""
-            if int(pm_data.get['num', 0]) > 0:
+            if int(pm_data.get('num', 0)) > 0:
                 log = f"{current_time}\n你有{pm_data['num']}条周期性工单即将超时，请及时处理！\n\n"        
                 msg_box(log)
                 data = ''
@@ -84,12 +84,12 @@ def tkpm_query(tkpm):
 
             time.sleep(300)
         except Exception as e:
+            time.sleep(10)
             log = f"[ERROR]   [{fetch_time()}] tkpm_query线程异常: {e}\n"
             log += f"[INFO]    [{fetch_time()}] 正在重启tkpm_query线程..."
             print(log)
             with open("ticket_timeout.log", "a") as file:
                 file.write(log)
-            time.sleep(5)
             continue
 
 # 临时性工单查询
@@ -107,7 +107,7 @@ def tkod_query(tkod):
             od_data = tkod.query_timeout()
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log = ""
-            if int(od_data.get['num', 0]) > 0:
+            if int(od_data.get('num', 0)) > 0:
                 log = f"{current_time}\n你有{od_data['num']}条临时性工单即将超时，请及时处理！\n\n"        
                 msg_box(log)
                 data = ''
@@ -124,12 +124,12 @@ def tkod_query(tkod):
 
             time.sleep(time_interval)
         except Exception as e:
-            log = f"[ERROR]   [{fetch_time()}] tkod_query线程异常: {e}"
+            time.sleep(10)
+            log = f"[ERROR]   [{fetch_time()}] tkod_query线程异常: {e}\n"
             log += f"[INFO]    [{fetch_time()}] 正在重启tkod_query线程..."
             print(log)
             with open("ticket_timeout.log", "a") as file:
                 file.write(log)
-            time.sleep(5)
             continue
 
 
@@ -139,7 +139,7 @@ def main(
     """这是一个工单即将超时弹窗提醒的软件"""
     global time_interval
     time_interval = wait_time
-    url = "http://kyrian.icu:4396/api/get_auth"
+    url = "http://kyrian.icu/api/get_auth"
     if requests.get(url).text != "OK":
             return
     print("=" * 50)
