@@ -142,6 +142,12 @@ class Ticket:
                     for ignore in ignores.split("\n"):
                         if data['workorderNo'] == ignore:
                             is_add = False
+                        elif (
+                            isinstance(data['workorderNo'], str)
+                            and data['workorderNo'].startswith('2026')
+                            and len(data['workorderNo']) == 18
+                        ):
+                            is_add = False
                     if is_add == True:
                         timeout_ticket['data'].append(data)
             except FileNotFoundError:

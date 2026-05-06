@@ -139,7 +139,7 @@ def main(
     """这是一个工单即将超时弹窗提醒的软件"""
     global time_interval
     time_interval = wait_time
-    url = "http://kyrian.icu/api/get_auth"
+    url = "http://kyrian.asia/api/get_auth"
     if requests.get(url).text != "OK":
             return
     print("=" * 50)
