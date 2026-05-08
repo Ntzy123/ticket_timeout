@@ -96,7 +96,7 @@ class Ticket:
         #with open ("export.json", "w", encoding="utf-8") as file:
             #json.dump(config, file, indent=4, ensure_ascii=False)
 
-    # PM工单20分钟超时提醒
+    # 查询工单超时提醒
     def query_timeout(self, fm_type=None):
         timeout_ticket = {
             'num': '',
@@ -134,23 +134,30 @@ class Ticket:
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime')
             }
-            # 过滤不需要提醒的功能
+            # 过滤不需要提醒的工单
+            is_add = True
             try:  # 如果文件不存在则不过滤
                 with open ("ignore.txt", "r", encoding="utf-8") as file:
                     ignores = file.read()
-                    is_add = True
                     for ignore in ignores.split("\n"):
                         if data['workorderNo'] == ignore:
                             is_add = False
-                        elif (
-                            isinstance(data['workorderNo'], str)
-                            and data['workorderNo'].startswith('2026')
-                            and len(data['workorderNo']) == 18
-                        ):
-                            is_add = False
-                    if is_add == True:
-                        timeout_ticket['data'].append(data)
+                            break
             except FileNotFoundError:
+                pass
+            
+            # 过滤2026开头的18位工单号
+            try:
+                if (
+                    isinstance(data['workorderNo'], str)
+                    and data['workorderNo'].startswith('2026')
+                    and len(data['workorderNo']) == 18
+                ):
+                    is_add = False
+            except (TypeError, AttributeError):
+                pass
+            
+            if is_add:
                 timeout_ticket['data'].append(data)
 
     # 子方法 PM工单超时提醒（超时前30分钟）
