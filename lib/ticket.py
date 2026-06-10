@@ -119,20 +119,26 @@ class Ticket:
                 print(text)
             """
         timeout_ticket['num'] = len(timeout_ticket['data'])
+        # 周期性工单按剩余时间由小到大排序
+        if fm_type in ("pm", "PM"):
+            timeout_ticket['data'].sort(key=lambda x: x.get('deadline', datetime.now()))
         return timeout_ticket
 
-    # 子方法 OD工单指派超时提醒(单生成30分钟内)
+    # 子方法 OD工单指派超时提醒(生成后0-30分钟内)
     def _timeout_od(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['createTime'], "%Y-%m-%d %H:%M:%S")
-        alert_time = target_time + timedelta(minutes=30)
-        if alert_time >= current_time >= target_time + timedelta(minutes=5):
-            # print("您有一条待处理的工单，任务即将超时请及时处理！")
+        deadline = target_time + timedelta(minutes=20)  # 20分钟指派期限
+        alert_end = target_time + timedelta(minutes=30)  # 30分钟查询窗口
+        # 新逻辑：查询生成后0-30分钟内的临时性工单
+        if alert_end >= current_time >= target_time:
             data = {
                 'workorderNo': record.get('workorderNo'),
-                'workorderDescription': record.get('workorderDescription'),
+                'workorderDescription': record.get('workorderDescription') or record.get('workorderTitle', ''),
+                'workorderStatusName': record.get('workorderStatusName', ''),
                 'acceptName': record.get('acceptName'),
-                'feedBackTime': record.get('feedBackTime')
+                'feedBackTime': record.get('feedBackTime'),
+                'deadline': deadline,
             }
             # 过滤不需要提醒的工单
             is_add = True
@@ -160,17 +166,19 @@ class Ticket:
             if is_add:
                 timeout_ticket['data'].append(data)
 
-    # 子方法 PM工单超时提醒（超时前30分钟）
+    # 子方法 PM工单超时提醒（超时前24小时）
     def _timeout_pm(self, record, timeout_ticket):
         current_time = datetime.now()
         target_time = datetime.strptime(record['feedBackTime'], "%Y-%m-%d %H:%M:%S")
-        alert_time = target_time - timedelta(minutes=30)
+        # 新逻辑：查询距离超时时间前24小时内的周期性工单
+        alert_time = target_time - timedelta(hours=24)
         if target_time > current_time >= alert_time:
-            # print("您有一条待处理的工单，任务即将超时请及时处理！")
             data = {
                 'workorderNo': record.get('workorderNo'),
-                'workorderDescription': record.get('workorderDescription'),
+                'workorderDescription': record.get('workorderDescription') or record.get('workorderTitle', ''),
+                'workorderStatusName': record.get('workorderStatusName', ''),
                 'acceptName': record.get('acceptName'),
-                'feedBackTime': record.get('feedBackTime')
+                'feedBackTime': record.get('feedBackTime'),
+                'deadline': target_time,
             }
             timeout_ticket['data'].append(data)
