@@ -1,7 +1,7 @@
 # run.py
 
 import requests, threading, time, signal, sys, os, ctypes, pygame, typer
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
 from feature.ticket_timeout_pm import TicketTimeoutPM
@@ -42,6 +42,45 @@ pygame.mixer.music.load(sound_path)
 def fetch_time():
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return current_time
+
+# 通过互联网API获取当前时间
+def fetch_internet_time():
+    """从互联网时间API获取当前时间，失败则返回None"""
+    apis = [
+        "http://worldtimeapi.org/api/timezone/Asia/Shanghai",
+        "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Shanghai",
+    ]
+    for api_url in apis:
+        try:
+            resp = requests.get(api_url, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                # WorldTimeAPI 返回 datetime 字段
+                if "datetime" in data:
+                    return datetime.fromisoformat(data["datetime"].replace("Z", "+00:00"))
+                # TimeAPI.io 返回 dateTime 字段
+                if "dateTime" in data:
+                    return datetime.fromisoformat(data["dateTime"])
+        except Exception:
+            continue
+    return None
+
+# 定时关机守护线程
+def shutdown_watcher(end_hour, end_minute):
+    """定期检查互联网时间，到达指定时间后关闭程序"""
+    tz_shanghai = timezone(timedelta(hours=8))
+    while True:
+        try:
+            now = fetch_internet_time()
+            if now is not None:
+                # 统一转到东八区比较
+                now_shanghai = now.astimezone(tz_shanghai)
+                if now_shanghai.hour == end_hour and now_shanghai.minute >= end_minute:
+                    time.sleep(1)
+                    os._exit(0)
+            time.sleep(30)
+        except Exception:
+            time.sleep(60)
 
 # 处理退出信号
 def handle_signal(signum, frame):
@@ -135,11 +174,24 @@ def tkod_query(tkod):
 
 
 def main(
-    wait_time: int = typer.Option(120, "--time", "-t", help="临时性工单查询间隔")
+    wait_time: int = typer.Option(120, "--time", "-t", help="临时性工单查询间隔（秒）"),
+    end_time: str = typer.Option(None, "--end", "-e", help="程序结束时间（24小时制，例如 8:30 或 20:30），不指定则不自动关闭"
+)
 ):
     """这是一个工单即将超时弹窗提醒的软件"""
     global time_interval
     time_interval = wait_time
+
+    # 解析 end_time
+    if end_time is not None:
+        try:
+            parts = end_time.strip().replace("：", ":").split(":")
+            end_hour = int(parts[0])
+            end_minute = int(parts[1]) if len(parts) > 1 else 0
+        except (ValueError, IndexError):
+            print(f"[ERROR]   结束时间格式错误，请使用 HH:MM 格式（例如 8:30 或 20:30）")
+            return
+
     url = "http://kyrian.asia/api/get_auth"
     if requests.get(url).text != "OK":
             return
@@ -156,6 +208,9 @@ def main(
     
     t1.start()
     t2.start()
+    if end_time is not None:
+        t3 = threading.Thread(target=shutdown_watcher, args=(end_hour, end_minute), daemon=True)
+        t3.start()
     print(f"[SUCCESS] [{fetch_time()}] 程序启动完成！")
     print("=" * 50)
     while True:

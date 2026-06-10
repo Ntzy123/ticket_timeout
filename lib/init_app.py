@@ -1,7 +1,9 @@
 import os
+import sys
 import json
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 打包后用可执行文件所在目录，开发时用脚本所在目录
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(sys.argv[0]))
 
 DEFAULT_CONFIG = {
     "url": "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/queryCourierTaskWorkOrderEtlPage",
@@ -57,7 +59,7 @@ DEFAULT_CONFIG = {
 }
 
 
-def initialize():
+def init_app():
     """检测并创建运行所需的配置文件"""
     config_path = os.path.join(BASE_DIR, ".config.json")
     ignore_path = os.path.join(BASE_DIR, "ignore.txt")
@@ -65,9 +67,7 @@ def initialize():
     if not os.path.exists(config_path):
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=4)
-        print(f"[INFO]    已创建默认配置文件: {config_path}")
 
     if not os.path.exists(ignore_path):
         with open(ignore_path, "w", encoding="utf-8") as f:
             pass
-        print(f"[INFO]    已创建忽略列表文件: {ignore_path}")
