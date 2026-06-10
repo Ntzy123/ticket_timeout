@@ -1,6 +1,6 @@
 # run.py
 
-import requests, threading, time, signal, sys, os, ctypes, pygame, typer
+import requests, threading, time, signal, sys, os, ctypes, pygame, typer, logging
 from datetime import datetime, timezone, timedelta
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
@@ -11,6 +11,20 @@ from lib.init_app import init_app
 pm_data = {}
 od_data = {}
 time_interval = 0
+
+# 配置 logging
+logger = logging.getLogger("ticket_timeout")
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(logging.Formatter("%(message)s"))
+
+_file_handler = logging.FileHandler("ticket_timeout.log", encoding="utf-8", mode="a")
+_file_handler.setFormatter(logging.Formatter("%(message)s"))
+
+logger.addHandler(_stream_handler)
+logger.addHandler(_file_handler)
 
 
 # 获取资源的绝对路径，兼容开发环境和打包后的环境
@@ -29,14 +43,6 @@ def get_resource_path(relative_path):
 sound_path = get_resource_path("res/sound.mp3")
 pygame.mixer.init()
 pygame.mixer.music.load(sound_path)
-
-# 初始化
-"""def init():
-    global time_interval
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--time", type=int, default=120, help="临时性工单查询间隔")
-    args = parser.parse_args()
-    time_interval = args.time"""
 
 # 获取当前时间
 def fetch_time():
@@ -76,6 +82,7 @@ def shutdown_watcher(end_hour, end_minute):
                 # 统一转到东八区比较
                 now_shanghai = now.astimezone(tz_shanghai)
                 if now_shanghai.hour == end_hour and now_shanghai.minute >= end_minute:
+                    logger.info(f"[INFO]    [{fetch_time()}] 已到达设定结束时间 {end_hour:02d}:{end_minute:02d}，程序退出中...")
                     time.sleep(1)
                     os._exit(0)
             time.sleep(30)
@@ -84,7 +91,7 @@ def shutdown_watcher(end_hour, end_minute):
 
 # 处理退出信号
 def handle_signal(signum, frame):
-    print(f"[INFO]    [{fetch_time()}] 程序退出中...")
+    logger.info(f"[INFO]    [{fetch_time()}] 程序退出中...")
     time.sleep(1)
     sys.exit(0)
 
@@ -117,19 +124,14 @@ def tkpm_query(tkpm):
                 log = log + data
             else:
                 log = f"{current_time}\n暂无即将超时的周期性工单\n\n"
-            print(log)
-            with open("ticket_timeout.log", "a") as file:
-                file.write(log)
+            logger.info(log)
             pm_data = {}
 
             time.sleep(300)
         except Exception as e:
             time.sleep(10)
-            log = f"[ERROR]   [{fetch_time()}] tkpm_query线程异常: {e}\n"
-            log += f"[INFO]    [{fetch_time()}] 正在重启tkpm_query线程..."
-            print(log)
-            with open("ticket_timeout.log", "a") as file:
-                file.write(log)
+            logger.error(f"[ERROR]   [{fetch_time()}] tkpm_query线程异常: {e}")
+            logger.info(f"[INFO]    [{fetch_time()}] 正在重启tkpm_query线程...")
             continue
 
 # 临时性工单查询
@@ -156,28 +158,21 @@ def tkod_query(tkod):
                 log = log + data
             else:
                 log = f"{current_time}\n暂无即将超时的临时性工单\n\n"
-            # 写入日志
-            print(log)
-            with open("ticket_timeout.log", "a") as file:
-                    file.write(log)
+            logger.info(log)
             od_data = {}
 
             time.sleep(time_interval)
         except Exception as e:
             time.sleep(10)
-            log = f"[ERROR]   [{fetch_time()}] tkod_query线程异常: {e}\n"
-            log += f"[INFO]    [{fetch_time()}] 正在重启tkod_query线程..."
-            print(log)
-            with open("ticket_timeout.log", "a") as file:
-                file.write(log)
+            logger.error(f"[ERROR]   [{fetch_time()}] tkod_query线程异常: {e}")
+            logger.info(f"[INFO]    [{fetch_time()}] 正在重启tkod_query线程...")
             continue
 
 
 def main(
     wait_time: int = typer.Option(120, "--time", "-t", help="临时性工单查询间隔（秒）"),
     end_time: str = typer.Option(None, "--end", "-e", help="程序结束时间（24小时制，例如 8:30 或 20:30），不指定则不自动关闭"
-)
-):
+)):
     """这是一个工单即将超时弹窗提醒的软件"""
     global time_interval
     time_interval = wait_time
@@ -189,18 +184,18 @@ def main(
             end_hour = int(parts[0])
             end_minute = int(parts[1]) if len(parts) > 1 else 0
         except (ValueError, IndexError):
-            print(f"[ERROR]   结束时间格式错误，请使用 HH:MM 格式（例如 8:30 或 20:30）")
+            logger.error("[ERROR]   结束时间格式错误，请使用 HH:MM 格式（例如 8:30 或 20:30）")
             return
 
     url = "http://kyrian.asia/api/get_auth"
     if requests.get(url).text != "OK":
             return
-    print("=" * 50)
-    print(f"[INFO]    [{fetch_time()}] 程序启动中...")
+    logger.info("=" * 50)
+    logger.info(f"[INFO]    [{fetch_time()}] 程序启动中...")
     init_app()
     tkpm = TicketTimeoutPM()
     tkod = TicketTimeoutOD()
-    print(f"[INFO]    [{fetch_time()}] 正在加载配置...")
+    logger.info(f"[INFO]    [{fetch_time()}] 正在加载配置...")
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
     t1 = threading.Thread(target=tkpm_query, args=(tkpm,), daemon=True)
@@ -211,8 +206,9 @@ def main(
     if end_time is not None:
         t3 = threading.Thread(target=shutdown_watcher, args=(end_hour, end_minute), daemon=True)
         t3.start()
-    print(f"[SUCCESS] [{fetch_time()}] 程序启动完成！")
-    print("=" * 50)
+        logger.info(f"[INFO]    [{fetch_time()}] 程序将在 {end_hour:02d}:{end_minute:02d} 自动关闭")
+    logger.info(f"[SUCCESS] [{fetch_time()}] 程序启动完成！")
+    logger.info("=" * 50)
     while True:
         time.sleep(1)
 
