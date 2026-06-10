@@ -5,3 +5,7 @@ __pycache__/
 res/
 *.spec
 *.log
+
+# Ticket Timeout
+.config.json
+ignore.txt

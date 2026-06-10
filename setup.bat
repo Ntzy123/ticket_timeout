@@ -39,7 +39,10 @@ if errorlevel 2 goto exit
 if errorlevel 1 goto run_command
 
 :run_command
-pyinstaller --onefile --name=ticket_timeout --icon=res/ticket_timeout.ico --add-data "res/sound.mp3;res" run.py
+
+for /f %%i in ('powershell -command "Get-Date -Format yyyyMMddHHmmss"') do set t=%%i
+
+pyinstaller --onefile --name=ticket_timeout_%t% --icon=res/ticket_timeout.ico --add-data "res/sound.mp3;res" run.py
     echo 打包完成，请按任意键继续...
     pause >nul
 exit

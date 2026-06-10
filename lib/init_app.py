@@ -1,4 +1,9 @@
-{
+import os
+import json
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+DEFAULT_CONFIG = {
     "url": "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/queryCourierTaskWorkOrderEtlPage",
     "headers": {
         "Host": "heimdallr.onewo.com",
@@ -36,8 +41,8 @@
         "workorderStatus": "[\"1\",\"1001\",\"1002\",\"1003\",\"1004\",\"1005\",\"1013\",\"1014\",\"4040\",\"6\",\"3\",\"4\",\"5\",\"1006\",\"1007\",\"1008\",\"1015\",\"4041\",\"10\",\"1017\",\"1091\"]",
         "sourceKeyList": [],
         "date1": [
-          "2025-01-28",
-          "2025-04-28"
+            "2025-01-28",
+            "2025-04-28"
         ],
         "fmWoType": "PM",
         "current": 1,
@@ -45,8 +50,24 @@
         "startTime": "2025-01-28 00:00:00",
         "endTime": "2025-04-28 23:59:59",
         "workOrderTypeNoList": [
-          "5"
+            "5"
         ],
         "type": "1"
     }
 }
+
+
+def initialize():
+    """检测并创建运行所需的配置文件"""
+    config_path = os.path.join(BASE_DIR, ".config.json")
+    ignore_path = os.path.join(BASE_DIR, "ignore.txt")
+
+    if not os.path.exists(config_path):
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=4)
+        print(f"[INFO]    已创建默认配置文件: {config_path}")
+
+    if not os.path.exists(ignore_path):
+        with open(ignore_path, "w", encoding="utf-8") as f:
+            pass
+        print(f"[INFO]    已创建忽略列表文件: {ignore_path}")

@@ -6,6 +6,7 @@ from datetime import datetime
 # from tkinter import messagebox
 from feature.ticket_timeout_pm import TicketTimeoutPM
 from feature.ticket_timeout_od import TicketTimeoutOD
+from lib.init_app import init_app
 
 pm_data = {}
 od_data = {}
@@ -144,6 +145,7 @@ def main(
             return
     print("=" * 50)
     print(f"[INFO]    [{fetch_time()}] 程序启动中...")
+    init_app()
     tkpm = TicketTimeoutPM()
     tkod = TicketTimeoutOD()
     print(f"[INFO]    [{fetch_time()}] 正在加载配置...")
