@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 
 from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
-from textual.widgets import Header, Footer, Static, DataTable, RichLog, Button
+from textual.widgets import Header, Footer, Static, DataTable, RichLog, Input
 from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
 from rich.text import Text
@@ -24,6 +24,14 @@ from feature.ticket_timeout_od import TicketTimeoutOD
 from lib.init_app import init_app
 
 logger = logging.getLogger("ticket_timeout")
+
+# 确保日志输出到文件（避免重复添加）
+if not logger.handlers:
+    _log_file = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "ticket_timeout.log")
+    _fh = logging.FileHandler(_log_file, encoding="utf-8", mode="a")
+    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(_fh)
+    logger.setLevel(logging.DEBUG)
 
 
 def format_remaining(deadline: datetime) -> str:
@@ -98,65 +106,376 @@ def now_str() -> str:
 
 
 def load_api_config() -> dict:
-    """从配置文件加载 API 请求头、projectId、source"""
+    """从配置文件加载 API 请求头、projectId、source（过滤掉请求体相关的固定字段）"""
     config_path = ".config.json"
     if not os.path.isfile(config_path):
         base = os.path.dirname(os.path.abspath(sys.argv[0]))
         config_path = os.path.join(base, ".config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
+    headers = cfg.get("headers", {})
+    # 移除固定值字段，避免干扰不同 API 请求
+    for k in ("Content-Length", "Accept-Encoding"):
+        headers.pop(k, None)
     return {
-        "headers": cfg.get("headers", {}),
+        "headers": headers,
         "project_id": cfg.get("json", {}).get("projectId", "52010017"),
-        "source": "2",
+        "source": "02",
     }
 
 
-# ── 工单详情界面 ──────────────────────────────────────────
+# ── 工单详情界面（带指派） ─────────────────────────────
 class DetailScreen(ModalScreen):
-    """查看工单详情"""
+    """工单详情（含可指派人员切换）"""
 
-    def __init__(self, workorder_no: str, source: str, project_id: str, headers: dict) -> None:
+    CSS = """
+    Screen {
+        layout: vertical;
+        background: $surface;
+    }
+
+    #detail-container {
+        layout: horizontal;
+        height: 1fr;
+    }
+
+    #detail-left {
+        width: 36;
+        border: tall $border;
+        border-right: none;
+        background: $surface;
+    }
+
+    #detail-left-header {
+        background: $primary-background;
+        color: $text;
+        padding: 0 1;
+        border-bottom: tall $border;
+        text-style: bold;
+        width: 100%;
+    }
+
+    #detail-left-log {
+        height: 1fr;
+        border: none;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    #detail-left-assign {
+        height: 1fr;
+    }
+
+    #detail-left-search {
+        display: none;
+        border: solid $border;
+        margin: 0 1;
+    }
+
+    #detail-right {
+        layout: vertical;
+        width: 1fr;
+    }
+
+    #detail-info {
+        height: 1fr;
+        border: tall $border;
+        border-left: none;
+        background: $surface;
+    }
+
+    #detail-info-header {
+        background: $primary-background;
+        color: $text;
+        padding: 0 1;
+        border-bottom: tall $border;
+        text-style: bold;
+        width: 100%;
+    }
+
+    #detail-info-body {
+        height: 1fr;
+        padding: 1;
+        overflow-y: auto;
+        overflow-x: auto;
+    }
+
+    #detail-time-bar {
+        height: 3;
+        border: tall $border;
+        border-top: none;
+        border-left: none;
+        background: $surface;
+        padding: 0 1;
+        content-align: center middle;
+    }
+    """
+
+    BINDINGS = [
+        Binding("a", "toggle_assign", "指派人员", key_display="A"),
+        Binding("q", "close", "返回", key_display="Q"),
+        Binding("escape", "close", "返回"),
+    ]
+
+    def __init__(self, workorder_no: str, headers: dict, etl_code: str = "",
+                 source: str = "", project_id: str = "") -> None:
         super().__init__()
         self.workorder_no = workorder_no
+        self.headers = headers
+        self.etl_code = etl_code
         self.source = source
         self.project_id = project_id
-        self.headers = headers
+        self._detail_data: dict | None = None
+        self._assignees: list = []
+        self._selected_assignee: dict | None = None
+        self._assign_mode = False
 
     def compose(self) -> ComposeResult:
-        yield Static("═══════════ 工单详情 ═══════════", id="detail-title")
-        yield Static(f"工单编号: {self.workorder_no}", id="detail-wo")
-        yield Static("正在加载...", id="detail-body")
-        yield Button("关闭", id="detail-close", variant="primary")
+        yield Header(show_clock=True)
+        with Horizontal(id="detail-container"):
+            with Vertical(id="detail-left"):
+                yield Static("详情日志", id="detail-left-header")
+                yield Input(placeholder="搜索姓名...", id="detail-left-search")
+                yield RichLog(id="detail-left-log", highlight=True, markup=True, wrap=True, max_lines=1000)
+                yield DataTable(id="detail-left-assign")
+            with Vertical(id="detail-right"):
+                with Vertical(id="detail-info"):
+                    yield Static("════ 工单详情 ════", id="detail-info-header")
+                    yield Static("正在加载...", id="detail-info-body")
+                yield Static(id="detail-time-bar")
+        yield Footer()
 
     def on_mount(self) -> None:
+        self._log("[dim]加载工单详情...[/dim]")
+        # 搜索框默认隐藏
+        self.query_one("#detail-left-search", Input).styles.display = "none"
+        # 指派表格：姓名、岗位、电话
+        assign_table = self.query_one("#detail-left-assign")
+        assign_table.add_column("姓名", key="name", width=8)
+        assign_table.add_column("岗位", key="role", width=16)
+        assign_table.add_column("电话", key="mobile", width=13)
+        assign_table.cursor_type = "row"
+        assign_table.styles.display = "none"
+        # 初始焦点给左侧日志，确保键盘绑定生效
+        self.set_focus(self.query_one("#detail-left-log"))
         threading.Thread(target=self._fetch_detail, daemon=True).start()
+        threading.Thread(target=self._fetch_assignees, daemon=True).start()
+        self.set_interval(1, self._update_time_bar)
 
+    def _log(self, msg: str) -> None:
+        try:
+            self.query_one("#detail-left-log", RichLog).write(msg)
+        except Exception:
+            pass
+
+    # ── 详情 API ────────────────────────────────────────
     def _fetch_detail(self) -> None:
         try:
-            url = f"https://heimdallr.onewo.com/api/datacenter/workOrder-etl/api/workOrder-etl/feign/getFmWorkOrderDetail/{self.source}-{self.workorder_no}-{self.project_id}"
+            url = f"https://heimdallr.onewo.com/api/datacenter/workOrder-etl/api/workOrder-etl/feign/getFmWorkOrderDetail/{self.etl_code}"
+            logger.info(f"[详情] 请求 URL: {url}")
             resp = requests.get(url, headers=self.headers, verify=False, timeout=10)
+            logger.info(f"[详情] HTTP {resp.status_code}, 响应长度={len(resp.text)}")
+            if resp.status_code != 200:
+                self.app.call_from_thread(lambda: self._show_detail(f"[red]HTTP {resp.status_code}[/red]"))
+                return
             data = resp.json()
-            body = self.query_one("#detail-body")
             if data.get("code") == 200 or data.get("msg") == "success":
-                info = data.get("data", {})
-                lines = []
-                for k, v in info.items():
-                    lines.append(f"[bold]{k}:[/bold] {v}")
-                text = "\n".join(lines) if lines else json.dumps(info, indent=2, ensure_ascii=False)
+                self._detail_data = data.get("data", {})
+                text = self._format_detail(self._detail_data)
             else:
                 text = f"[red]请求失败: {data.get('msg', '未知错误')}[/red]"
-            self.call_from_thread(body.update, text)
+            self.app.call_from_thread(lambda: self._show_detail(text))
         except Exception as e:
-            body = self.query_one("#detail-body")
-            self.call_from_thread(body.update, f"[red]请求异常: {e}[/red]")
+            logger.error(f"[详情] 请求异常: {e}", exc_info=True)
+            self.app.call_from_thread(lambda: self._show_detail(f"[red]请求异常: {e}[/red]"))
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "detail-close":
-            self.dismiss()
+    def _format_detail(self, info: dict) -> str:
+        feed_back = info.get("feedBackTime", "")
+        deadline = None
+        try:
+            if feed_back:
+                deadline = datetime.strptime(feed_back, "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            pass
+        remaining_str = "--:--:--"
+        remaining_style = "green"
+        if deadline:
+            remaining_str = format_remaining(deadline)
+            remaining_style = get_remaining_style(deadline)
+        lines = [
+            f"[bold]工单编号:[/bold]  {info.get('workorderNo', '')}",
+            f"[bold]工单类型:[/bold]  {info.get('workorderTypeName', '')}    "
+            f"[bold]来源:[/bold]  {info.get('sourceName', info.get('source', ''))}",
+            f"[bold]所属项目:[/bold]  {info.get('projectName', '')}",
+            f"[bold]地    址:[/bold]  {info.get('address', '')}",
+            f"[bold]工单描述:[/bold]  {info.get('workorderDescription', '')}",
+            "",
+            f"[bold]接 单 人:[/bold]  {info.get('acceptName') or '未接单'}    "
+            f"[bold]状  态:[/bold]  {info.get('workorderStatusName', '')}",
+            "",
+            f"[bold]创建时间:[/bold]  {info.get('createTime', '')}",
+            f"[bold]超时时间:[/bold]  {feed_back}    "
+            f"剩余: [{remaining_style}]{remaining_str}[/{remaining_style}]",
+        ]
+        return "\n".join(lines)
 
+    def _show_detail(self, text: str) -> None:
+        try:
+            self.query_one("#detail-info-body", Static).update(text)
+            self._log(f"[dim]{now_str()}[/dim]")
+            self._log("[green]工单详情加载完成[/green]")
+            self._log("")
+            self._update_time_bar()
+        except Exception as e:
+            logger.error(f"[详情] 更新失败: {e}", exc_info=True)
 
-# ── 工单指派界面（暂未实现指派API，仅展示可指派人员） ──
+    # ── 倒计时条 ────────────────────────────────────────
+    def _update_time_bar(self) -> None:
+        if not self._detail_data:
+            return
+        feed_back = self._detail_data.get("feedBackTime", "")
+        try:
+            deadline = datetime.strptime(feed_back, "%Y-%m-%d %H:%M:%S") if feed_back else None
+        except (ValueError, TypeError):
+            deadline = None
+        if deadline:
+            remaining = format_remaining(deadline)
+            style = get_remaining_style(deadline)
+            text = f"[{style}]超时倒计时: {remaining}[/{style}]"
+        else:
+            text = "[dim]超时倒计时: 未知[/dim]"
+        try:
+            self.query_one("#detail-time-bar", Static).update(text)
+        except Exception:
+            pass
+
+    # ── 指派 API ────────────────────────────────────────
+    def _fetch_assignees(self) -> None:
+        try:
+            url = "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/assignmentList"
+            body = {
+                "bodyForm": {
+                    "projectCode": self.project_id,
+                    "queryParam": "",
+                    "workOrderNo": self.workorder_no,
+                },
+                "source": self.source,
+            }
+            logger.info(f"[详情指派] 请求 URL: {url}")
+            logger.info(f"[详情指派] 请求体: {json.dumps(body, ensure_ascii=False)}")
+            resp = requests.post(url, json=body, headers=self.headers, verify=False, timeout=10)
+            logger.info(f"[详情指派] HTTP {resp.status_code}, 响应长度={len(resp.text)}")
+            if resp.status_code != 200:
+                self._log("[red]指派列表请求失败[/red]")
+                return
+            data = resp.json()
+            code = data.get("code")
+            msg = data.get("msg", "未知")
+            is_ok = data.get("isOk")
+            logger.info(f"[详情指派] 响应解析: code={code}, msg={msg}, isOk={is_ok}")
+            if code in (200, "200") or msg == "success" or is_ok:
+                # 处理两种响应结构：{code:"200", data:{records:[]}} 或 {isOk:true, data:[]}
+                records = data.get("data", {})
+                if isinstance(records, dict):
+                    records = records.get("records", [])
+                if records:
+                    self._assignees = records
+                    self.app.call_from_thread(self._populate_assign_table, records)
+                    self._log(f"[green]已加载 {len(records)} 位可指派人员[/green]")
+                else:
+                    self._log("[yellow]该工单无可指派人员[/yellow]")
+            else:
+                self._log(f"[red]获取指派列表失败: {msg}[/red]")
+        except Exception as e:
+            logger.error(f"[详情指派] 异常: {e}")
+            self._log(f"[red]指派列表异常: {e}[/red]")
+
+    def _populate_assign_table(self, records: list = None) -> None:
+        """填充指派表格，records=None 时用 self._assignees（用于搜索后重绘）"""
+        data = records if records is not None else self._assignees
+        assign_table = self.query_one("#detail-left-assign", DataTable)
+        assign_table.clear()
+        for r in data:
+            name = r.get("userName", r.get("dealUserName", r.get("realName", "未知")))
+            role = r.get("roleName", "")
+            mobile = r.get("mobile", "")
+            assign_table.add_row(name, role, mobile)
+
+    # ── 指派模式切换 ────────────────────────────────────
+    def action_toggle_assign(self) -> None:
+        header = self.query_one("#detail-left-header", Static)
+        search_input = self.query_one("#detail-left-search", Input)
+        left_panel = self.query_one("#detail-left")
+        log = self.query_one("#detail-left-log", RichLog)
+        assign_table = self.query_one("#detail-left-assign", DataTable)
+
+        if self._assign_mode:
+            # 切回日志模式（缩窄左侧面板）
+            left_panel.styles.width = 36
+            header.update("详情日志")
+            search_input.styles.display = "none"
+            log.styles.display = "block"
+            assign_table.styles.display = "none"
+            self._assign_mode = False
+            self.set_focus(log)
+        else:
+            # 切换到指派模式（展宽左侧面板）
+            if not self._assignees:
+                self._log("[yellow]无可指派人员或尚未加载[/yellow]")
+                return
+            left_panel.styles.width = 50
+            header.update(f"→ 可指派人员（{len(self._assignees)} 人）")
+            search_input.value = ""
+            search_input.styles.display = "block"
+            log.styles.display = "none"
+            assign_table.styles.display = "block"
+            self._populate_assign_table()
+            self._assign_mode = True
+            self.set_focus(search_input)
+
+    # ── 实时搜索 ────────────────────────────────────────
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.control.id != "detail-left-search":
+            return
+        keyword = event.value.strip()
+        if not keyword:
+            self._populate_assign_table(self._assignees)
+            return
+        filtered = [r for r in self._assignees
+                    if keyword.lower() in (r.get("userName", r.get("dealUserName", r.get("realName", "")))).lower()
+                    or keyword.lower() in r.get("roleName", "").lower()
+                    or keyword in r.get("mobile", "")]
+        self._populate_assign_table(filtered)
+
+    # ── 指派表格选中事件 ──────────────────────────────────
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.control.id != "detail-left-assign":
+            return
+        try:
+            coord = event.cursor_coordinate
+            if coord is None:
+                return
+            row = event.control.get_row_at(coord[0])
+            if not row or not row[0]:
+                return
+            name = str(row[0]).strip()
+            # 根据名字从原始列表匹配完整记录（含 userId 等隐藏字段）
+            matched = next((r for r in self._assignees
+                           if (r.get("userName", r.get("dealUserName", r.get("realName", ""))) == name)), None)
+            if matched:
+                self._selected_assignee = matched
+                role = matched.get("roleName", "")
+                mobile = matched.get("mobile", "")
+                self._log(f"[green]已选: {name} ({role})[/green]")
+                self.notify(f"已选择: {name} | {role} | {mobile}", severity="information")
+            else:
+                self._log(f"[green]已选: {name}[/green]")
+                self._selected_assignee = {"userName": name}
+        except Exception as e:
+            self.notify(f"选择异常: {e}", severity="error")
+
+    def action_close(self) -> None:
+        self.dismiss()
 
 
 class TicketMonitorApp(App):
@@ -238,26 +557,6 @@ class TicketMonitorApp(App):
         height: 1fr;
     }
 
-    #assign-panel {
-        height: 8;
-        border: tall $border;
-        border-top: none;
-        background: $surface;
-    }
-
-    #assign-header {
-        background: $primary-background;
-        color: $text;
-        padding: 0 1;
-        border-bottom: tall $border;
-        text-style: bold;
-        width: 100%;
-    }
-
-    #assign-table {
-        height: 1fr;
-    }
-
     Header {
         background: $primary-background;
     }
@@ -268,9 +567,8 @@ class TicketMonitorApp(App):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "退出", key_display="Q"),
-        Binding("r", "force_refresh", "强制刷新", key_display="R"),
-        Binding("a", "focus_assign", "指派人员", key_display="A"),
+        Binding("ctrl+q", "quit", "退出", key_display="Ctrl+Q"),
+        Binding("r", "force_refresh", "刷新", key_display="R"),
     ]
 
     def __init__(self, wait_time: int = 120, end_time: tuple = None, **kwargs):
@@ -290,10 +588,8 @@ class TicketMonitorApp(App):
         self._pending_logs: deque = deque()
         self._api_headers: dict = {}
         self._api_project_id: str = "52010017"
-        self._api_source: str = "2"
+        self._api_source: str = "02"
         self._selected_ticket: dict | None = None  # 当前按Enter选中的工单
-        self._assignees: list = []  # 可指派人员列表
-        self._selected_assignee: dict | None = None  # 用户选中的指派对象
         self._od_row_keys: list = []  # OD表格行key（用于原地更新剩余时间）
         self._pm_row_keys: list = []  # PM表格行key
 
@@ -328,9 +624,6 @@ class TicketMonitorApp(App):
                 with Vertical(id="pm-panel"):
                     yield Static("↻ 即将超时 · 周期性工单", id="pm-header")
                     yield DataTable(id="pm-table")
-                with Vertical(id="assign-panel"):
-                    yield Static("→ 可指派人员", id="assign-header")
-                    yield DataTable(id="assign-table")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -375,26 +668,17 @@ class TicketMonitorApp(App):
         od_table = self.query_one("#od-table")
         od_table.add_column("工单编号", key="id", width=16)
         od_table.add_column("任务描述", key="desc")
-        od_table.add_column("状态", key="status", width=10)
+        od_table.add_column("状态", key="status", width=8)
         od_table.add_column("剩余时间", key="time", width=10)
         od_table.cursor_type = "row"
 
         pm_table = self.query_one("#pm-table")
         pm_table.add_column("工单编号", key="id", width=16)
         pm_table.add_column("任务描述", key="desc")
-        pm_table.add_column("处理人", key="handler", width=10)
-        pm_table.add_column("状态", key="status", width=10)
+        pm_table.add_column("处理人", key="handler", width=8)
+        pm_table.add_column("状态", key="status", width=8)
         pm_table.add_column("剩余时间", key="time", width=10)
         pm_table.cursor_type = "row"
-
-        # 设置指派人员表格
-        assign_table = self.query_one("#assign-table")
-        assign_table.add_column("用户名", key="name", width=16)
-        assign_table.add_column("用户ID", key="uid")
-        assign_table.cursor_type = "row"
-
-        # 默认隐藏指派面板
-        self.query_one("#assign-panel").styles.display = "none"
 
         # 启动日志——先于查询输出
         self._log(f"[dim]{now_str()}[/dim]")
@@ -462,6 +746,8 @@ class TicketMonitorApp(App):
                 self._latest_od_data = self._tkod.query_timeout()
             od_items = self._latest_od_data.get("data", [])
             od_count = len(od_items)
+            msg = self._tkod.content.get("msg", "unknown") if self._tkod.content else "unknown"
+            logger.info(f"[OD查询] msg={msg}, 超时工单数={od_count}")
             new_ids = {i['workorderNo'] for i in od_items} - self._notified_od_ids
             self._log(f"[dim]{now_str()}[/dim]")
             if od_count > 0:
@@ -475,6 +761,7 @@ class TicketMonitorApp(App):
             self._log("")
             self.call_from_thread(self._refresh_tables)
         except Exception as e:
+            logger.error(f"[OD查询] 异常: {e}")
             self._log(f"[bold red]OD查询异常: {e}[/bold red]")
 
     def _run_pm_query(self):
@@ -486,6 +773,8 @@ class TicketMonitorApp(App):
             with self._lock:
                 self._latest_pm_data = self._tkpm.query_timeout()
             pm_items = self._latest_pm_data.get("data", [])
+            msg = self._tkpm.content.get("msg", "unknown") if self._tkpm.content else "unknown"
+            logger.info(f"[PM查询] msg={msg}, 总工单数={len(pm_items)}")
             # 仅统计剩余时间 < 30 分钟的作为"即将超时"
             now = datetime.now()
             critical = [i for i in pm_items if (i['deadline'] - now).total_seconds() < 1800]
@@ -502,6 +791,7 @@ class TicketMonitorApp(App):
             self._log("")
             self.call_from_thread(self._refresh_tables)
         except Exception as e:
+            logger.error(f"[PM查询] 异常: {e}")
             self._log(f"[bold red]PM查询异常: {e}[/bold red]")
 
     # ── 界面刷新 ────────────────────────────────────────────
@@ -718,100 +1008,22 @@ class TicketMonitorApp(App):
         return None
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Enter → 查看工单详情 & 加载可指派人员"""
+        """Enter → 查看工单详情"""
         try:
-            # 区分是哪个表格触发的事件
-            table_id = event.control.id
-            if table_id == "assign-table":
-                self._on_assign_selected(event)
-                return
-            if table_id not in ("od-table", "pm-table"):
+            if event.control.id not in ("od-table", "pm-table"):
                 return
             ticket = self._get_selected_ticket()
             if not ticket:
                 self.notify("当前行不是有效工单", severity="warning")
                 return
             self._selected_ticket = ticket
-            # 打开工单详情弹窗
+            # 打开工单详情弹窗（内置指派功能）
             self.push_screen(DetailScreen(
                 workorder_no=ticket["workorderNo"],
+                headers=self._api_headers,
+                etl_code=ticket.get("etlCode", ""),
                 source=self._api_source,
                 project_id=self._api_project_id,
-                headers=self._api_headers,
             ))
-            # 同时后台加载可指派人员列表
-            threading.Thread(target=self._fetch_assignees, daemon=True).start()
         except Exception as e:
             self.notify(f"操作异常: {e}", severity="error")
-
-    def action_focus_assign(self) -> None:
-        """A → 焦点移到可指派人员列表"""
-        assign_panel = self.query_one("#assign-panel")
-        if assign_panel.styles.display == "none":
-            self.notify("请先按 Enter 选择有效工单", severity="warning")
-            return
-        assign_table = self.query_one("#assign-table")
-        if assign_table.row_count == 0:
-            self.notify("无可指派人员", severity="warning")
-            return
-        assign_table.focus()
-        self.notify("已切换到指派列表，使用 ↑↓ 选择人员", severity="information")
-
-    def _fetch_assignees(self) -> None:
-        """后台获取可指派人员列表"""
-        try:
-            url = "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/assignmentList"
-            body = {
-                "bodyForm": {
-                    "projectCode": self._api_project_id,
-                    "queryParam": "",
-                    "workOrderNo": self._selected_ticket["workorderNo"],
-                },
-                "source": self._api_source,
-            }
-            resp = requests.post(url, json=body, headers=self._api_headers, verify=False, timeout=10)
-            data = resp.json()
-            self.call_from_thread(self._on_assignees_fetched, data)
-        except Exception as e:
-            logger.error(f"获取指派列表异常: {e}")
-
-    def _on_assignees_fetched(self, data: dict) -> None:
-        """处理可指派人员返回数据"""
-        assign_panel = self.query_one("#assign-panel")
-        assign_table = self.query_one("#assign-table")
-        assign_header = self.query_one("#assign-header")
-        if data.get("code") == 200 or data.get("msg") == "success":
-            records = data.get("data", {}).get("records", [])
-            if records:
-                self._assignees = records
-                assign_table.clear()
-                for r in records:
-                    name = r.get("userName", r.get("realName", "未知"))
-                    uid = r.get("userId", "")
-                    assign_table.add_row(name, uid)
-                assign_header.update(f"→ 可指派人员（共 {len(records)} 人）")
-                assign_panel.styles.display = "block"
-                self._log(f"[dim]{now_str()}[/dim]")
-                self._log(f"[green]加载 {len(records)} 位可指派人员[/green]")
-                self._log("")
-            else:
-                assign_panel.styles.display = "none"
-                self._log("[yellow]该工单无可指派人员[/yellow]")
-        else:
-            self._log(f"[red]获取指派列表失败: {data.get('msg', '未知错误')}[/red]")
-
-    def _on_assign_selected(self, event: DataTable.RowSelected) -> None:
-        """在可指派人员表格中选中一人"""
-        try:
-            row_key = event.cursor_coordinate
-            if row_key is None:
-                return
-            row = event.control.get_row_at(row_key)
-            if not row or not row[0]:
-                return
-            name = str(row[0]).strip()
-            uid = str(row[1]).strip() if len(row) > 1 else ""
-            self._selected_assignee = {"userName": name, "userId": uid}
-            self.notify(f"已选择: {name}", severity="information")
-        except Exception as e:
-            self.notify(f"选择异常: {e}", severity="error")

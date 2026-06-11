@@ -1,10 +1,12 @@
 # ticket.py
 
-import json, os, requests, sys, urllib3
+import json, logging, os, requests, sys, urllib3
 from datetime import date, datetime, timedelta
 
 # 禁用SSL验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+logger = logging.getLogger("ticket_timeout")
 
 class Ticket:
     
@@ -63,38 +65,39 @@ class Ticket:
                 
         # 发起POST请求并存储
         try:
-            res = requests.post(self.url, json=self.json, headers=self.headers, verify=False)
+            logger.info(f"[查询] URL: {self.url}")
+            logger.info(f"[查询] 请求体: {json.dumps(self.json, ensure_ascii=False)[:300]}")
+            res = requests.post(self.url, json=self.json, headers=self.headers, verify=False, timeout=15)
+            logger.info(f"[查询] HTTP {res.status_code}, 响应长度={len(res.text)}")
+            logger.debug(f"[查询] 响应体: {res.text[:500]}")
             self.data = res.json()
-        except Exception:
+        except Exception as e:
+            logger.error(f"[查询] 网络异常: {e}")
             return {'msg': '请求失败', 'data': []}
 
         # 处理返回数据
         config = {
-            'msg': self.data['msg'],
+            'msg': self.data.get('msg', 'unknown'),
             'data': []
         }
         # 获取数据失败直接return
         if config['msg'] != "success":
             return config
+
+        try:
+            records = self.data.get('data', {}).get('records', [])
+        except AttributeError:
+            return config
         
-        for record in self.data['data']['records']:
-            # 格式化输出内容
-            """
-            print("任务描述：\t", record['workorderTitle'])
-            print("状态：\t\t", record['workorderStatusName'])
-            print("接单人：\t", record['acceptName'])
-            print("超时时间：\t", record['feedBackTime'])
-            print("\n", "-" * 50, "\n")
-            """
-            # 导出已查询工单(data数据没用上/疑似)
+        for record in records:
             data = {
                 "workorderNo": record.get('workorderNo'),
                 "workorderTitle": record.get('workorderTitle'),
-                "workorderStatusName": record.get('workorderStatusName'),
+                "workorderStatusName": record.get('workorderStatusName', ''),
                 "acceptName": record.get('acceptName'),
                 "feedBackTime": record.get('feedBackTime')
             }
-            if workorderTitle in data['workorderStatusName']:
+            if workorderTitle in (data['workorderStatusName'] or ''):
                 config['data'].append(data)
         return config
         # 到处export.json （已弃用）
@@ -144,6 +147,7 @@ class Ticket:
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime'),
                 'deadline': deadline,
+                'etlCode': record.get('etlCode', ''),
             }
             # 过滤不需要提醒的工单
             is_add = True
@@ -185,5 +189,6 @@ class Ticket:
                 'acceptName': record.get('acceptName'),
                 'feedBackTime': record.get('feedBackTime'),
                 'deadline': target_time,
+                'etlCode': record.get('etlCode', ''),
             }
             timeout_ticket['data'].append(data)
