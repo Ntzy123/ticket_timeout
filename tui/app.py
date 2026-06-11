@@ -1,6 +1,7 @@
 # tui/app.py
 
 import ctypes
+import json
 import threading
 import time
 import sys
@@ -12,7 +13,8 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, DataTable, RichLog
+from textual.screen import ModalScreen
+from textual.widgets import Header, Footer, Static, DataTable, RichLog, Button
 from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
 from rich.text import Text
@@ -95,6 +97,68 @@ def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def load_api_config() -> dict:
+    """从配置文件加载 API 请求头、projectId、source"""
+    config_path = ".config.json"
+    if not os.path.isfile(config_path):
+        base = os.path.dirname(os.path.abspath(sys.argv[0]))
+        config_path = os.path.join(base, ".config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    return {
+        "headers": cfg.get("headers", {}),
+        "project_id": cfg.get("json", {}).get("projectId", "52010017"),
+        "source": "2",
+    }
+
+
+# ── 工单详情界面 ──────────────────────────────────────────
+class DetailScreen(ModalScreen):
+    """查看工单详情"""
+
+    def __init__(self, workorder_no: str, source: str, project_id: str, headers: dict) -> None:
+        super().__init__()
+        self.workorder_no = workorder_no
+        self.source = source
+        self.project_id = project_id
+        self.headers = headers
+
+    def compose(self) -> ComposeResult:
+        yield Static("═══════════ 工单详情 ═══════════", id="detail-title")
+        yield Static(f"工单编号: {self.workorder_no}", id="detail-wo")
+        yield Static("正在加载...", id="detail-body")
+        yield Button("关闭", id="detail-close", variant="primary")
+
+    def on_mount(self) -> None:
+        threading.Thread(target=self._fetch_detail, daemon=True).start()
+
+    def _fetch_detail(self) -> None:
+        try:
+            url = f"https://heimdallr.onewo.com/api/datacenter/workOrder-etl/api/workOrder-etl/feign/getFmWorkOrderDetail/{self.source}-{self.workorder_no}-{self.project_id}"
+            resp = requests.get(url, headers=self.headers, verify=False, timeout=10)
+            data = resp.json()
+            body = self.query_one("#detail-body")
+            if data.get("code") == 200 or data.get("msg") == "success":
+                info = data.get("data", {})
+                lines = []
+                for k, v in info.items():
+                    lines.append(f"[bold]{k}:[/bold] {v}")
+                text = "\n".join(lines) if lines else json.dumps(info, indent=2, ensure_ascii=False)
+            else:
+                text = f"[red]请求失败: {data.get('msg', '未知错误')}[/red]"
+            self.call_from_thread(body.update, text)
+        except Exception as e:
+            body = self.query_one("#detail-body")
+            self.call_from_thread(body.update, f"[red]请求异常: {e}[/red]")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "detail-close":
+            self.dismiss()
+
+
+# ── 工单指派界面（暂未实现指派API，仅展示可指派人员） ──
+
+
 class TicketMonitorApp(App):
     """工单超时监控终端 - TUI 应用"""
 
@@ -174,6 +238,26 @@ class TicketMonitorApp(App):
         height: 1fr;
     }
 
+    #assign-panel {
+        height: 8;
+        border: tall $border;
+        border-top: none;
+        background: $surface;
+    }
+
+    #assign-header {
+        background: $primary-background;
+        color: $text;
+        padding: 0 1;
+        border-bottom: tall $border;
+        text-style: bold;
+        width: 100%;
+    }
+
+    #assign-table {
+        height: 1fr;
+    }
+
     Header {
         background: $primary-background;
     }
@@ -186,6 +270,7 @@ class TicketMonitorApp(App):
     BINDINGS = [
         Binding("q", "quit", "退出", key_display="Q"),
         Binding("r", "force_refresh", "强制刷新", key_display="R"),
+        Binding("a", "focus_assign", "指派人员", key_display="A"),
     ]
 
     def __init__(self, wait_time: int = 120, end_time: tuple = None, **kwargs):
@@ -203,6 +288,14 @@ class TicketMonitorApp(App):
         self._tkpm = None
         self._tkod = None
         self._pending_logs: deque = deque()
+        self._api_headers: dict = {}
+        self._api_project_id: str = "52010017"
+        self._api_source: str = "2"
+        self._selected_ticket: dict | None = None  # 当前按Enter选中的工单
+        self._assignees: list = []  # 可指派人员列表
+        self._selected_assignee: dict | None = None  # 用户选中的指派对象
+        self._od_row_keys: list = []  # OD表格行key（用于原地更新剩余时间）
+        self._pm_row_keys: list = []  # PM表格行key
 
     # ── 日志推送（线程安全） ──────────────────────────────────
     def _log(self, msg: str):
@@ -235,6 +328,9 @@ class TicketMonitorApp(App):
                 with Vertical(id="pm-panel"):
                     yield Static("↻ 即将超时 · 周期性工单", id="pm-header")
                     yield DataTable(id="pm-table")
+                with Vertical(id="assign-panel"):
+                    yield Static("→ 可指派人员", id="assign-header")
+                    yield DataTable(id="assign-table")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -257,6 +353,15 @@ class TicketMonitorApp(App):
             self.exit()
             return
 
+        # 加载 API 配置
+        try:
+            cfg = load_api_config()
+            self._api_headers = cfg["headers"]
+            self._api_project_id = cfg["project_id"]
+            self._api_source = cfg["source"]
+        except Exception:
+            self._log("[bold red]API配置加载失败[/bold red]")
+
         # 初始化音频
         try:
             sound_path = get_resource_path("res/sound.mp3")
@@ -266,12 +371,13 @@ class TicketMonitorApp(App):
         except Exception:
             self._sound_loaded = False
 
-        # 设置表格列
+        # 设置表格列 + 行光标支持
         od_table = self.query_one("#od-table")
         od_table.add_column("工单编号", key="id", width=16)
         od_table.add_column("任务描述", key="desc")
         od_table.add_column("状态", key="status", width=10)
         od_table.add_column("剩余时间", key="time", width=10)
+        od_table.cursor_type = "row"
 
         pm_table = self.query_one("#pm-table")
         pm_table.add_column("工单编号", key="id", width=16)
@@ -279,6 +385,16 @@ class TicketMonitorApp(App):
         pm_table.add_column("处理人", key="handler", width=10)
         pm_table.add_column("状态", key="status", width=10)
         pm_table.add_column("剩余时间", key="time", width=10)
+        pm_table.cursor_type = "row"
+
+        # 设置指派人员表格
+        assign_table = self.query_one("#assign-table")
+        assign_table.add_column("用户名", key="name", width=16)
+        assign_table.add_column("用户ID", key="uid")
+        assign_table.cursor_type = "row"
+
+        # 默认隐藏指派面板
+        self.query_one("#assign-panel").styles.display = "none"
 
         # 启动日志——先于查询输出
         self._log(f"[dim]{now_str()}[/dim]")
@@ -301,8 +417,10 @@ class TicketMonitorApp(App):
             t3 = threading.Thread(target=self._shutdown_watcher, daemon=True)
             t3.start()
 
-        # 定期刷新UI（1秒间隔，保证日志及时展示）
-        self.set_interval(1, self._refresh_ui)
+        # 定期冲刷日志（1秒间隔），表格仅在有新数据时才刷新
+        self.set_interval(1, self._flush_logs)
+        # 每秒更新剩余时间（原地更新，不影响光标位置）
+        self.set_interval(1, self._update_time_column)
 
     def _startup_sequence(self):
         """首次查询串行执行：OD → PM，然后启动周期线程"""
@@ -355,6 +473,7 @@ class TicketMonitorApp(App):
             else:
                 self._log("[dim]暂无即将超时的临时性工单[/dim]")
             self._log("")
+            self.call_from_thread(self._refresh_tables)
         except Exception as e:
             self._log(f"[bold red]OD查询异常: {e}[/bold red]")
 
@@ -381,14 +500,13 @@ class TicketMonitorApp(App):
             else:
                 self._log("[dim]周期性工单状态正常[/dim]")
             self._log("")
+            self.call_from_thread(self._refresh_tables)
         except Exception as e:
             self._log(f"[bold red]PM查询异常: {e}[/bold red]")
 
     # ── 界面刷新 ────────────────────────────────────────────
-    def _refresh_ui(self):
-        """每1秒刷一次：刷新日志 + 更新表格数据"""
-        self._flush_logs()
-
+    def _refresh_tables(self):
+        """新数据到达时刷新表格"""
         with self._lock:
             od_data = self._latest_od_data
             pm_data = self._latest_pm_data
@@ -396,6 +514,7 @@ class TicketMonitorApp(App):
         # 更新OD表格
         od_table = self.query_one("#od-table")
         od_table.clear()
+        self._od_row_keys.clear()
         if od_data is not None:
             od_count = int(od_data.get("num", 0))
             od_items = od_data.get("data", [])
@@ -403,12 +522,13 @@ class TicketMonitorApp(App):
                 for item in od_items:
                     remaining_text = format_remaining(item["deadline"])
                     remaining_style = get_remaining_style(item["deadline"])
-                    od_table.add_row(
+                    row = od_table.add_row(
                         item["workorderNo"],
                         truncate(item.get("workorderDescription", ""), 60),
                         ralign(item.get("workorderStatusName", ""), 10),
                         Text(ralign(remaining_text, 10), style=remaining_style),
                     )
+                    self._od_row_keys.append(row)
             else:
                 od_table.add_row("", "暂无即将超时的临时性工单", "", "")
         else:
@@ -417,6 +537,7 @@ class TicketMonitorApp(App):
         # 更新PM表格
         pm_table = self.query_one("#pm-table")
         pm_table.clear()
+        self._pm_row_keys.clear()
         if pm_data is not None:
             pm_count = int(pm_data.get("num", 0))
             pm_items = pm_data.get("data", [])
@@ -425,20 +546,57 @@ class TicketMonitorApp(App):
                     remaining_text = format_remaining(item["deadline"])
                     remaining_style = get_remaining_style(item["deadline"])
                     handler = item.get("acceptName") or "None"
-                    pm_table.add_row(
+                    row = pm_table.add_row(
                         item["workorderNo"],
                         truncate(item.get("workorderDescription", ""), 60),
-                        ralign(handler, 10),
-                        ralign(item.get("workorderStatusName", ""), 10),
-                        Text(ralign(remaining_text, 10), style=remaining_style),
+                        handler,
+                        item.get("workorderStatusName", ""),
+                        Text(remaining_text, style=remaining_style),
                     )
+                    self._pm_row_keys.append(row)
             else:
                 pm_table.add_row("", "暂无即将超时的周期性工单", "", "", "")
         else:
-            pm_table.add_row("", "等待首次查询...", "", "", "")
+            pm_table.add_row("", "等待首次查询...", "", "")
 
         # 更新标题栏
         self._update_headers()
+
+    def _update_time_column(self):
+        """每秒更新剩余时间列（原地更新单元格，不移动光标）"""
+        try:
+            with self._lock:
+                od_data = self._latest_od_data
+                pm_data = self._latest_pm_data
+
+            od_table = self.query_one("#od-table")
+            if od_data and int(od_data.get("num", 0)) > 0:
+                items = od_data.get("data", [])
+                for i, item in enumerate(items):
+                    if i < len(self._od_row_keys):
+                        remaining_text = format_remaining(item["deadline"])
+                        remaining_style = get_remaining_style(item["deadline"])
+                        od_table.update_cell(
+                            self._od_row_keys[i], "time",
+                            Text(ralign(remaining_text, 10), style=remaining_style),
+                        )
+
+            pm_table = self.query_one("#pm-table")
+            if pm_data and int(pm_data.get("num", 0)) > 0:
+                items = pm_data.get("data", [])
+                for i, item in enumerate(items):
+                    if i < len(self._pm_row_keys):
+                        remaining_text = format_remaining(item["deadline"])
+                        remaining_style = get_remaining_style(item["deadline"])
+                        pm_table.update_cell(
+                            self._pm_row_keys[i], "time",
+                            Text(ralign(remaining_text, 10), style=remaining_style),
+                        )
+
+            # 同步更新标题栏中的超时状态颜色
+            self._update_headers()
+        except Exception:
+            pass
 
     def _update_headers(self):
         """更新面板标题中的状态指示"""
@@ -527,3 +685,133 @@ class TicketMonitorApp(App):
         self._run_pm_query()
 
         self._log("")
+        self.call_from_thread(self._refresh_tables)
+
+    # ── 工单详情 & 指派 ────────────────────────────────────
+    def _get_selected_ticket(self) -> dict | None:
+        """获取当前光标所在行的工单数据，仅返回有效工单"""
+        # 占位提示文字
+        _placeholders = {"暂无即将超时的临时性工单", "暂无即将超时的周期性工单",
+                         "等待首次查询...", "暂无数据", ""}
+        for table_id in ("#od-table", "#pm-table"):
+            table = self.query_one(table_id)
+            try:
+                coord = table.cursor_coordinate
+                if coord is None:
+                    continue
+                row = table.get_row_at(coord[0])
+            except Exception:
+                continue
+            if not row or not row[0]:
+                continue
+            wo_no = str(row[0]).strip()
+            # 过滤占位提示文字
+            if wo_no in _placeholders or len(wo_no) < 5:
+                continue
+            # 从缓存数据找完整信息
+            for data in (self._latest_od_data, self._latest_pm_data):
+                if data:
+                    for item in data.get("data", []):
+                        if item["workorderNo"] == wo_no:
+                            return item
+            return {"workorderNo": wo_no}
+        return None
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Enter → 查看工单详情 & 加载可指派人员"""
+        try:
+            # 区分是哪个表格触发的事件
+            table_id = event.control.id
+            if table_id == "assign-table":
+                self._on_assign_selected(event)
+                return
+            if table_id not in ("od-table", "pm-table"):
+                return
+            ticket = self._get_selected_ticket()
+            if not ticket:
+                self.notify("当前行不是有效工单", severity="warning")
+                return
+            self._selected_ticket = ticket
+            # 打开工单详情弹窗
+            self.push_screen(DetailScreen(
+                workorder_no=ticket["workorderNo"],
+                source=self._api_source,
+                project_id=self._api_project_id,
+                headers=self._api_headers,
+            ))
+            # 同时后台加载可指派人员列表
+            threading.Thread(target=self._fetch_assignees, daemon=True).start()
+        except Exception as e:
+            self.notify(f"操作异常: {e}", severity="error")
+
+    def action_focus_assign(self) -> None:
+        """A → 焦点移到可指派人员列表"""
+        assign_panel = self.query_one("#assign-panel")
+        if assign_panel.styles.display == "none":
+            self.notify("请先按 Enter 选择有效工单", severity="warning")
+            return
+        assign_table = self.query_one("#assign-table")
+        if assign_table.row_count == 0:
+            self.notify("无可指派人员", severity="warning")
+            return
+        assign_table.focus()
+        self.notify("已切换到指派列表，使用 ↑↓ 选择人员", severity="information")
+
+    def _fetch_assignees(self) -> None:
+        """后台获取可指派人员列表"""
+        try:
+            url = "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/assignmentList"
+            body = {
+                "bodyForm": {
+                    "projectCode": self._api_project_id,
+                    "queryParam": "",
+                    "workOrderNo": self._selected_ticket["workorderNo"],
+                },
+                "source": self._api_source,
+            }
+            resp = requests.post(url, json=body, headers=self._api_headers, verify=False, timeout=10)
+            data = resp.json()
+            self.call_from_thread(self._on_assignees_fetched, data)
+        except Exception as e:
+            logger.error(f"获取指派列表异常: {e}")
+
+    def _on_assignees_fetched(self, data: dict) -> None:
+        """处理可指派人员返回数据"""
+        assign_panel = self.query_one("#assign-panel")
+        assign_table = self.query_one("#assign-table")
+        assign_header = self.query_one("#assign-header")
+        if data.get("code") == 200 or data.get("msg") == "success":
+            records = data.get("data", {}).get("records", [])
+            if records:
+                self._assignees = records
+                assign_table.clear()
+                for r in records:
+                    name = r.get("userName", r.get("realName", "未知"))
+                    uid = r.get("userId", "")
+                    assign_table.add_row(name, uid)
+                assign_header.update(f"→ 可指派人员（共 {len(records)} 人）")
+                assign_panel.styles.display = "block"
+                self._log(f"[dim]{now_str()}[/dim]")
+                self._log(f"[green]加载 {len(records)} 位可指派人员[/green]")
+                self._log("")
+            else:
+                assign_panel.styles.display = "none"
+                self._log("[yellow]该工单无可指派人员[/yellow]")
+        else:
+            self._log(f"[red]获取指派列表失败: {data.get('msg', '未知错误')}[/red]")
+
+    def _on_assign_selected(self, event: DataTable.RowSelected) -> None:
+        """在可指派人员表格中选中一人"""
+        try:
+            row_key = event.cursor_coordinate
+            if row_key is None:
+                return
+            row = event.control.get_row_at(row_key)
+            if not row or not row[0]:
+                return
+            name = str(row[0]).strip()
+            uid = str(row[1]).strip() if len(row) > 1 else ""
+            self._selected_assignee = {"userName": name, "userId": uid}
+            self.notify(f"已选择: {name}", severity="information")
+        except Exception as e:
+            self.notify(f"选择异常: {e}", severity="error")
