@@ -1,6 +1,6 @@
 # ticket.py
 
-import json, requests, urllib3
+import json, os, requests, sys, urllib3
 from datetime import date, datetime, timedelta
 
 # 禁用SSL验证警告
@@ -9,7 +9,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class Ticket:
     
     # 加载配置文件
-    def load(self,filename):
+    def load(self, filename):
         """
         # 读取用户配置文件
         with open(toml_filename, 'rb') as file:
@@ -18,7 +18,12 @@ class Ticket:
             self.shift = self.config['is_day_shift']
         """
 
-        # 读取res配置文件
+        # 尝试相对路径，若失败则回退到脚本所在目录
+        if not os.path.isfile(filename):
+            base = os.path.dirname(os.path.abspath(sys.argv[0]))
+            filename = os.path.join(base, filename)
+
+        # 读取配置文件
         with open(filename, 'r', encoding='utf-8') as file:
             config = json.load(file)
             self.url = config['url']

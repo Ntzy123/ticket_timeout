@@ -1,5 +1,6 @@
 # tui/app.py
 
+import ctypes
 import threading
 import time
 import sys
@@ -184,6 +185,8 @@ class TicketMonitorApp(App):
         self._latest_pm_data = None
         self._prev_od_ids: set = set()
         self._prev_pm_ids: set = set()
+        self._notified_od_ids: set = set()
+        self._notified_pm_ids: set = set()
         self._sound_loaded = False
         self._tkpm = None
         self._tkod = None
@@ -319,10 +322,16 @@ class TicketMonitorApp(App):
                 time.sleep(1)
             with self._lock:
                 self._latest_od_data = self._tkod.query_timeout()
-            od_count = int(self._latest_od_data.get("num", 0))
+            od_items = self._latest_od_data.get("data", [])
+            od_count = len(od_items)
+            new_ids = {i['workorderNo'] for i in od_items} - self._notified_od_ids
             self._log(f"[dim]{now_str()}[/dim]")
             if od_count > 0:
                 self._log(f"[bold red]发现 {od_count} 个即将超时的临时性工单[/bold red]")
+                self._play_sound()
+                if new_ids:
+                    self._show_popup(f"你有 {len(new_ids)} 条临时性工单即将超时，请及时处理！")
+                    self._notified_od_ids.update(new_ids)
             else:
                 self._log("[dim]暂无即将超时的临时性工单[/dim]")
             self._log("")
@@ -330,19 +339,27 @@ class TicketMonitorApp(App):
             self._log(f"[bold red]OD查询异常: {e}[/bold red]")
 
     def _run_pm_query(self):
-        """执行一次PM查询并输出结果日志"""
+        """执行一次PM查询并输出结果日志（仅剩余<30分钟时告警）"""
         try:
             self._tkpm.query()
             while self._tkpm.content is None:
                 time.sleep(1)
             with self._lock:
                 self._latest_pm_data = self._tkpm.query_timeout()
-            pm_count = int(self._latest_pm_data.get("num", 0))
+            pm_items = self._latest_pm_data.get("data", [])
+            # 仅统计剩余时间 < 30 分钟的作为"即将超时"
+            now = datetime.now()
+            critical = [i for i in pm_items if (i['deadline'] - now).total_seconds() < 1800]
+            new_critical_ids = {i['workorderNo'] for i in critical} - self._notified_pm_ids
             self._log(f"[dim]{now_str()}[/dim]")
-            if pm_count > 0:
-                self._log(f"[yellow]发现 {pm_count} 个即将超时的周期性工单[/yellow]")
+            if critical:
+                self._log(f"[bold yellow]发现 {len(critical)} 个即将超时的周期性工单（剩余 < 30 分钟）[/bold yellow]")
+                self._play_sound()
+                if new_critical_ids:
+                    self._show_popup(f"你有 {len(new_critical_ids)} 条周期性工单即将超时，请及时处理！")
+                    self._notified_pm_ids.update(new_critical_ids)
             else:
-                self._log("[dim]暂无即将超时的周期性工单[/dim]")
+                self._log("[dim]周期性工单状态正常[/dim]")
             self._log("")
         except Exception as e:
             self._log(f"[bold red]PM查询异常: {e}[/bold red]")
@@ -410,6 +427,14 @@ class TicketMonitorApp(App):
         od_count = int(od_data.get("num", 0)) if od_data else -1
         pm_count = int(pm_data.get("num", 0)) if pm_data else -1
 
+        # PM临界数量（剩余 < 30 分钟）
+        now = datetime.now()
+        pm_critical = 0
+        if pm_data:
+            for item in pm_data.get("data", []):
+                if (item['deadline'] - now).total_seconds() < 1800:
+                    pm_critical += 1
+
         od_header = self.query_one("#od-header")
         pm_header = self.query_one("#pm-header")
         log_header = self.query_one("#log-header")
@@ -423,12 +448,13 @@ class TicketMonitorApp(App):
 
         if pm_count >= 0:
             pm_header.update(
-                f"↻ 即将超时 · 周期性工单    {'⚠ 待确认 ' + str(pm_count) if pm_count > 0 else '— 无'}"
+                f"↻ 即将超时 · 周期性工单    {'⚠ ' + str(pm_count) if pm_count > 0 else '— 无'}"
             )
         else:
             pm_header.update("↻ 即将超时 · 周期性工单    ⏳ 查询中")
 
-        has_alert = (od_count > 0) or (pm_count > 0)
+        # 日志告警标志：OD有超时 或 PM有临界（< 30分钟）
+        has_alert = (od_count > 0) or (pm_critical > 0)
         log_header.update(f"查询日志  {'● 告警' if has_alert else '● 正常'}")
 
     # ── 音频 ────────────────────────────────────────────────
@@ -439,6 +465,13 @@ class TicketMonitorApp(App):
                 pygame.mixer.music.play()
             except Exception:
                 pass
+
+    def _show_popup(self, msg: str):
+        """Windows 弹窗提醒（后台线程安全）"""
+        try:
+            ctypes.windll.user32.MessageBoxW(0, msg, "工单超时提醒", 0)
+        except Exception:
+            pass
 
     # ── 定时关机 ────────────────────────────────────────────
     def _shutdown_watcher(self):
@@ -454,8 +487,8 @@ class TicketMonitorApp(App):
                     now_shanghai = now.astimezone(tz_shanghai)
                     if now_shanghai.hour == end_hour and now_shanghai.minute >= end_minute:
                         self._log(f"[bold red]已到达设定结束时间 {end_hour:02d}:{end_minute:02d}，程序退出中...[/bold red]")
-                        time.sleep(1)
-                        os._exit(0)
+                        self.call_from_thread(self.exit)
+                        return
                 time.sleep(30)
             except Exception:
                 time.sleep(60)
