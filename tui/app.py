@@ -49,6 +49,18 @@ def get_remaining_style(deadline: datetime) -> str:
         return "green"
 
 
+def truncate(text: str, max_len: int = 60) -> str:
+    """过长文本截断，末尾加..."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 3] + "..."
+
+def ralign(text: str, width: int = 10) -> str:
+    """右对齐填充"""
+    text = str(text)
+    return text.rjust(width) if len(text) < width else text
+
+
 def get_resource_path(relative_path: str) -> str:
     if not os.path.isfile("./sound.mp3"):
         try:
@@ -256,9 +268,17 @@ class TicketMonitorApp(App):
 
         # 设置表格列
         od_table = self.query_one("#od-table")
-        od_table.add_columns("工单编号", "任务描述", "状态", "剩余时间")
+        od_table.add_column("工单编号", key="id", width=16)
+        od_table.add_column("任务描述", key="desc")
+        od_table.add_column("状态", key="status", width=10)
+        od_table.add_column("剩余时间", key="time", width=10)
+
         pm_table = self.query_one("#pm-table")
-        pm_table.add_columns("工单编号", "任务描述", "状态", "剩余时间")
+        pm_table.add_column("工单编号", key="id", width=16)
+        pm_table.add_column("任务描述", key="desc")
+        pm_table.add_column("处理人", key="handler", width=10)
+        pm_table.add_column("状态", key="status", width=10)
+        pm_table.add_column("剩余时间", key="time", width=10)
 
         # 启动日志——先于查询输出
         self._log(f"[dim]{now_str()}[/dim]")
@@ -381,13 +401,13 @@ class TicketMonitorApp(App):
             od_items = od_data.get("data", [])
             if od_count > 0:
                 for item in od_items:
-                    remaining = format_remaining(item["deadline"])
-                    style = get_remaining_style(item["deadline"])
+                    remaining_text = format_remaining(item["deadline"])
+                    remaining_style = get_remaining_style(item["deadline"])
                     od_table.add_row(
                         item["workorderNo"],
-                        item.get("workorderDescription", ""),
-                        item.get("workorderStatusName", ""),
-                        Text(remaining, style=style),
+                        truncate(item.get("workorderDescription", ""), 60),
+                        ralign(item.get("workorderStatusName", ""), 10),
+                        Text(ralign(remaining_text, 10), style=remaining_style),
                     )
             else:
                 od_table.add_row("", "暂无即将超时的临时性工单", "", "")
@@ -402,18 +422,20 @@ class TicketMonitorApp(App):
             pm_items = pm_data.get("data", [])
             if pm_count > 0:
                 for item in pm_items:
-                    remaining = format_remaining(item["deadline"])
-                    style = get_remaining_style(item["deadline"])
+                    remaining_text = format_remaining(item["deadline"])
+                    remaining_style = get_remaining_style(item["deadline"])
+                    handler = item.get("acceptName") or "None"
                     pm_table.add_row(
                         item["workorderNo"],
-                        item.get("workorderDescription", ""),
-                        item.get("workorderStatusName", ""),
-                        Text(remaining, style=style),
+                        truncate(item.get("workorderDescription", ""), 60),
+                        ralign(handler, 10),
+                        ralign(item.get("workorderStatusName", ""), 10),
+                        Text(ralign(remaining_text, 10), style=remaining_style),
                     )
             else:
-                pm_table.add_row("", "暂无即将超时的周期性工单", "", "")
+                pm_table.add_row("", "暂无即将超时的周期性工单", "", "", "")
         else:
-            pm_table.add_row("", "等待首次查询...", "", "")
+            pm_table.add_row("", "等待首次查询...", "", "", "")
 
         # 更新标题栏
         self._update_headers()
