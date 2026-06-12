@@ -200,11 +200,15 @@ class DetailScreen(ModalScreen):
         height: 1fr;
         border: none;
         overflow-y: auto;
-        overflow-x: auto;
+        overflow-x: hidden;
     }
 
     #detail-info-body > .datatable--header {
         display: none;
+    }
+
+    #detail-info-body DataTable {
+        width: 100%;
     }
 
     #detail-time-bar {
@@ -269,22 +273,27 @@ class DetailScreen(ModalScreen):
         assign_table.add_column("电话", key="mobile", width=13)
         assign_table.cursor_type = "row"
         assign_table.styles.display = "none"
+        # 底部倒计时条改为静态装饰（颜色已移入表格）
+        self.query_one("#detail-time-bar", Static).update("")
         # 详情表格：4列（左标签/左值/右标签/右值）无边框无光标
         detail_table = self.query_one("#detail-info-body", DataTable)
-        detail_table.add_column("", key="ll", width=8)
-        detail_table.add_column("", key="lv")
-        detail_table.add_column("", key="rl", width=8)
-        detail_table.add_column("", key="rv")
+        detail_table.wrap = True
+        detail_table.row_height = 4  # 行高拉高，给描述行留出换行空间
+        detail_table.add_column("", key="ll", width=10)
+        detail_table.add_column("", key="lv", width=30)
+        detail_table.add_column("", key="rl", width=10)
+        detail_table.add_column("", key="rv", width=30)
         detail_table.show_header = False
         detail_table.cursor_type = None
         detail_table.zebra_stripes = False
         detail_table.add_row("", "正在加载...", "", "")
+        self._time_row_key = None  # 剩余时间行的key，用于每秒更新
 
         # 初始焦点给左侧日志，确保键盘绑定生效
         self.set_focus(self.query_one("#detail-left-log"))
         threading.Thread(target=self._fetch_detail, daemon=True).start()
         threading.Thread(target=self._fetch_assignees, daemon=True).start()
-        self.set_interval(1, self._update_time_bar)
+        self.set_interval(1, self._update_remaining_cell)
 
     def _log(self, msg: str) -> None:
         try:
@@ -316,7 +325,7 @@ class DetailScreen(ModalScreen):
     def _format_detail(self, info: dict) -> list[tuple]:
         # 计算倒计时截止时间
         self._deadline = None
-        timeout_label = "指派超时时间"
+        timeout_label = "超时时间"
         if self._wo_type == "OD":
             create_time_str = info.get("createTime", "")
             if create_time_str:
@@ -327,7 +336,7 @@ class DetailScreen(ModalScreen):
                     pass
         else:
             feed_back = info.get("feedBackTime", "")
-            timeout_label = "处理超时时间"
+            timeout_label = "超时时间"
             if feed_back:
                 try:
                     self._deadline = datetime.strptime(feed_back, "%Y-%m-%d %H:%M:%S")
@@ -335,20 +344,24 @@ class DetailScreen(ModalScreen):
                     pass
 
         if self._deadline:
-            remaining_str = format_remaining(self._deadline)
+            timeout_val = self._deadline.strftime("%Y-%m-%d %H:%M:%S")
+            remaining_text = format_remaining(self._deadline)
             remaining_style = get_remaining_style(self._deadline, self._wo_type)
-            timeout_val = f"{self._deadline.strftime('%Y-%m-%d %H:%M:%S')}  [{remaining_style}]{remaining_str}[/{remaining_style}]"
+            remaining_cell = Text(remaining_text, style=remaining_style)
         else:
             timeout_val = "--:--:--"
+            remaining_cell = ""
 
         rows = [
-            ("工单编号", info.get("workorderNo", ""), "", ""),
-            ("工单类型", info.get("workorderTypeName", ""), "来源", info.get("sourceName", info.get("source", ""))),
-            ("所属项目", info.get("projectName", ""), "地址", info.get("address", "")),
-            ("工单描述", info.get("workorderDescription", ""), "", ""),
-            ("报单人", info.get("createName", ""), "电话", info.get("createMobile", "")),
-            ("接单人", info.get("acceptName") or "未接单", "状态", info.get("workorderStatusName", "")),
-            ("创建时间", info.get("createTime", ""), timeout_label, timeout_val),
+            ("工单编号：", info.get("workorderNo", ""), "", ""),
+            ("工单类型：", info.get("workorderTypeName", ""), "", ""),
+            ("所属项目：", info.get("projectName", ""), "地址：", info.get("address", "")),
+            ("", "", "", ""),  # 工单描述移走后留空行
+            ("报单人：", info.get("createName", ""), "电话：", info.get("createMobile", "")),
+            ("接单人：", info.get("acceptName") or "未接单", "状态：", info.get("workorderStatusName", "")),
+            ("创建时间：", info.get("createTime", ""), f"{timeout_label}：", timeout_val),
+            ("", "", "剩余时间：", remaining_cell),
+            ("工单描述：", info.get("workorderDescription", ""), "", ""),  # 放到最下方，利用行高换行显示
         ]
         return rows
 
@@ -356,25 +369,28 @@ class DetailScreen(ModalScreen):
         try:
             table = self.query_one("#detail-info-body", DataTable)
             table.clear()
-            for ll, lv, rl, rv in rows:
-                table.add_row(ll, lv, rl, rv)
+            for i, (ll, lv, rl, rv) in enumerate(rows):
+                key = table.add_row(ll, lv, rl, rv)
+                # 剩余时间行是倒数第二行（最后一行是工单描述）
+                if i == len(rows) - 2:
+                    self._time_row_key = key
             self._log(f"[dim]{now_str()}[/dim]")
             self._log("[green]工单详情加载完成[/green]")
             self._log("")
-            self._update_time_bar()
+            self._update_remaining_cell()
         except Exception as e:
             logger.error(f"[详情] 更新失败: {e}", exc_info=True)
 
-    # ── 倒计时条 ────────────────────────────────────────
-    def _update_time_bar(self) -> None:
-        if self._deadline:
-            remaining = format_remaining(self._deadline)
-            style = get_remaining_style(self._deadline, self._wo_type)
-            text = f"[{style}]超时倒计时: {remaining}[/{style}]"
-        else:
-            text = "[dim]超时倒计时: 未知[/dim]"
+    # ── 剩余时间单元格每秒更新 ──────────────────────────
+    def _update_remaining_cell(self) -> None:
+        """更新表格中剩余时间格的颜色和数值（与主表格同渲染路径）"""
+        if not self._deadline or not self._time_row_key:
+            return
+        remaining = format_remaining(self._deadline)
+        style = get_remaining_style(self._deadline, self._wo_type)
         try:
-            self.query_one("#detail-time-bar", Static).update(text)
+            table = self.query_one("#detail-info-body", DataTable)
+            table.update_cell(self._time_row_key, "rv", Text(remaining, style=style))
         except Exception:
             pass
 
@@ -504,8 +520,12 @@ class DetailScreen(ModalScreen):
             self.notify(f"选择异常: {e}", severity="error")
 
     def action_close(self) -> None:
-        if self._assign_mode and self._confirm_mode:
-            self._cancel_assign()
+        if self._assign_mode:
+            if self._confirm_mode:
+                self._cancel_assign()
+            else:
+                # 指派模式下 ESC/Q → 返回日志视图
+                self.action_toggle_assign()
         else:
             self.dismiss()
 
@@ -585,9 +605,10 @@ class DetailScreen(ModalScreen):
     def _on_assign_success(self, name: str) -> None:
         self._log(f"[bold green]指派成功！已分配给 {name}[/bold green]")
         self.notify(f"指派成功！已分配给 {name}", severity="information")
-        self._refresh_detail()
-        # 延迟3秒后切回日志模式，避免刷新未完成
-        threading.Timer(3, lambda: self.app.call_from_thread(self.action_toggle_assign)).start()
+        # 先切回详情日志视图
+        self.action_toggle_assign()
+        # 延迟3秒后刷新详情（等价于按 R 键）
+        threading.Timer(3, lambda: self.app.call_from_thread(self.action_refresh_detail)).start()
 
     def _on_assign_fail(self, msg: str) -> None:
         self._log(f"[bold red]指派失败: {msg}，请稍后重试[/bold red]")
