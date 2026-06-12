@@ -844,12 +844,12 @@ class TicketMonitorApp(App):
         self.set_interval(1, self._update_time_column)
 
     def _startup_sequence(self):
-        """首次查询串行执行：OD → PM，然后启动周期线程"""
-        self._run_od_query()
-        self._run_pm_query()
-        # 首次查询完成后，启动周期循环线程
+        """先启动周期循环线程（互不依赖），再执行首次查询"""
         threading.Thread(target=self._pm_query_loop, daemon=True).start()
         threading.Thread(target=self._od_query_loop, daemon=True).start()
+        # 首次查询，与周期循环互不阻塞
+        self._run_od_query()
+        self._run_pm_query()
 
     def _pm_query_loop(self):
         """PM工单周期查询循环（启动后先等待，避免与首次查询重复）"""
@@ -1074,9 +1074,12 @@ class TicketMonitorApp(App):
                 pass
 
     def _show_popup(self, msg: str):
-        """Windows 弹窗提醒（后台线程安全）"""
+        """Windows 弹窗提醒（独立线程，不阻塞调用方）"""
         try:
-            ctypes.windll.user32.MessageBoxW(0, msg, "工单超时提醒", 0)
+            threading.Thread(
+                target=lambda: ctypes.windll.user32.MessageBoxW(0, msg, "工单超时提醒", 0),
+                daemon=True,
+            ).start()
         except Exception:
             pass
 
