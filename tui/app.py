@@ -46,17 +46,23 @@ def format_remaining(deadline: datetime) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def get_remaining_style(deadline: datetime) -> str:
+def get_remaining_style(deadline: datetime, ticket_type: str = "PM") -> str:
     """根据剩余时间返回颜色样式"""
     remaining = deadline - datetime.now()
     total_minutes = remaining.total_seconds() / 60
     if total_minutes < 0:
         return "bold red"
-    elif total_minutes < 30:
-        return "red"
-    elif total_minutes < 120:
-        return "yellow"
-    else:
+    if ticket_type == "OD":
+        if total_minutes < 5:
+            return "red"
+        elif total_minutes < 10:
+            return "yellow"
+        return "green"
+    else:  # PM
+        if total_minutes < 10:
+            return "red"
+        elif total_minutes < 30:
+            return "yellow"
         return "green"
 
 
@@ -192,9 +198,13 @@ class DetailScreen(ModalScreen):
 
     #detail-info-body {
         height: 1fr;
-        padding: 1;
+        border: none;
         overflow-y: auto;
         overflow-x: auto;
+    }
+
+    #detail-info-body > .datatable--header {
+        display: none;
     }
 
     #detail-time-bar {
@@ -210,6 +220,7 @@ class DetailScreen(ModalScreen):
 
     BINDINGS = [
         Binding("a", "toggle_assign", "指派人员", key_display="A"),
+        Binding("r", "refresh_detail", "刷新", key_display="R"),
         Binding("q", "close", "返回", key_display="Q"),
         Binding("escape", "close", "返回"),
     ]
@@ -225,6 +236,7 @@ class DetailScreen(ModalScreen):
         self.project_id = project_id
         self._wo_type = wo_type
         self._detail_data: dict | None = None
+        self._deadline: datetime | None = None
         self._assignees: list = []
         self._selected_assignee: dict | None = None
         self._pending_assignee: dict | None = None
@@ -242,7 +254,7 @@ class DetailScreen(ModalScreen):
             with Vertical(id="detail-right"):
                 with Vertical(id="detail-info"):
                     yield Static("════ 工单详情 ════", id="detail-info-header")
-                    yield Static("正在加载...", id="detail-info-body")
+                    yield DataTable(id="detail-info-body")
                 yield Static(id="detail-time-bar")
         yield Footer()
 
@@ -257,6 +269,17 @@ class DetailScreen(ModalScreen):
         assign_table.add_column("电话", key="mobile", width=13)
         assign_table.cursor_type = "row"
         assign_table.styles.display = "none"
+        # 详情表格：4列（左标签/左值/右标签/右值）无边框无光标
+        detail_table = self.query_one("#detail-info-body", DataTable)
+        detail_table.add_column("", key="ll", width=8)
+        detail_table.add_column("", key="lv")
+        detail_table.add_column("", key="rl", width=8)
+        detail_table.add_column("", key="rv")
+        detail_table.show_header = False
+        detail_table.cursor_type = None
+        detail_table.zebra_stripes = False
+        detail_table.add_row("", "正在加载...", "", "")
+
         # 初始焦点给左侧日志，确保键盘绑定生效
         self.set_focus(self.query_one("#detail-left-log"))
         threading.Thread(target=self._fetch_detail, daemon=True).start()
@@ -273,58 +296,68 @@ class DetailScreen(ModalScreen):
     def _fetch_detail(self) -> None:
         try:
             url = lib_api.DETAIL_URL_TPL.format(etl_code=self.etl_code)
-            logger.info(f"[详情] 请求 URL: {url}")
             resp = requests.get(url, headers=self.headers, verify=False, timeout=10)
-            logger.info(f"[详情] HTTP {resp.status_code}, 响应长度={len(resp.text)}")
             if resp.status_code != 200:
-                self.app.call_from_thread(lambda: self._show_detail(f"[red]HTTP {resp.status_code}[/red]"))
+                self.app.call_from_thread(
+                    lambda: self._show_detail([("", f"[red]HTTP {resp.status_code}[/red]", "", "")])
+                )
                 return
             data = resp.json()
             if data.get("code") == 200 or data.get("msg") == "success":
                 self._detail_data = data.get("data", {})
-                text = self._format_detail(self._detail_data)
+                rows = self._format_detail(self._detail_data)
             else:
-                text = f"[red]请求失败: {data.get('msg', '未知错误')}[/red]"
-            self.app.call_from_thread(lambda: self._show_detail(text))
+                rows = [("", f"[red]{data.get('msg', '未知错误')}[/red]", "", "")]
+            self.app.call_from_thread(lambda: self._show_detail(rows))
         except Exception as e:
             logger.error(f"[详情] 请求异常: {e}", exc_info=True)
-            self.app.call_from_thread(lambda: self._show_detail(f"[red]请求异常: {e}[/red]"))
+            self.app.call_from_thread(lambda: self._show_detail([("", f"[red]请求异常: {e}[/red]", "", "")]))
 
-    def _format_detail(self, info: dict) -> str:
-        feed_back = info.get("feedBackTime", "")
-        deadline = None
-        try:
+    def _format_detail(self, info: dict) -> list[tuple]:
+        # 计算倒计时截止时间
+        self._deadline = None
+        timeout_label = "指派超时时间"
+        if self._wo_type == "OD":
+            create_time_str = info.get("createTime", "")
+            if create_time_str:
+                try:
+                    create_time = datetime.strptime(create_time_str, "%Y-%m-%d %H:%M:%S")
+                    self._deadline = create_time + timedelta(minutes=20)
+                except (ValueError, TypeError):
+                    pass
+        else:
+            feed_back = info.get("feedBackTime", "")
+            timeout_label = "处理超时时间"
             if feed_back:
-                deadline = datetime.strptime(feed_back, "%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            pass
-        remaining_str = "--:--:--"
-        remaining_style = "green"
-        if deadline:
-            remaining_str = format_remaining(deadline)
-            remaining_style = get_remaining_style(deadline)
-        lines = [
-            f"[bold]工单编号:[/bold]  {info.get('workorderNo', '')}",
-            f"[bold]工单类型:[/bold]  {info.get('workorderTypeName', '')}    "
-            f"[bold]来源:[/bold]  {info.get('sourceName', info.get('source', ''))}",
-            f"[bold]所属项目:[/bold]  {info.get('projectName', '')}",
-            f"[bold]地    址:[/bold]  {info.get('address', '')}",
-            f"[bold]工单描述:[/bold]  {info.get('workorderDescription', '')}",
-            "",
-            f"[bold]报 单 人:[/bold]  {info.get('createName', '      ')}    "
-            f"[bold]报单人电话:[/bold]  {info.get('createMobile', '')}",
-            f"[bold]接 单 人:[/bold]  {info.get('acceptName') or '未接单'}    "
-            f"[bold]状  态:[/bold]  {info.get('workorderStatusName', '')}",
-            "",
-            f"[bold]创建时间:[/bold]  {info.get('createTime', '')}",
-            f"[bold]超时时间:[/bold]  {feed_back}    "
-            f"剩余: [{remaining_style}]{remaining_str}[/{remaining_style}]",
-        ]
-        return "\n".join(lines)
+                try:
+                    self._deadline = datetime.strptime(feed_back, "%Y-%m-%d %H:%M:%S")
+                except (ValueError, TypeError):
+                    pass
 
-    def _show_detail(self, text: str) -> None:
+        if self._deadline:
+            remaining_str = format_remaining(self._deadline)
+            remaining_style = get_remaining_style(self._deadline, self._wo_type)
+            timeout_val = f"{self._deadline.strftime('%Y-%m-%d %H:%M:%S')}  [{remaining_style}]{remaining_str}[/{remaining_style}]"
+        else:
+            timeout_val = "--:--:--"
+
+        rows = [
+            ("工单编号", info.get("workorderNo", ""), "", ""),
+            ("工单类型", info.get("workorderTypeName", ""), "来源", info.get("sourceName", info.get("source", ""))),
+            ("所属项目", info.get("projectName", ""), "地址", info.get("address", "")),
+            ("工单描述", info.get("workorderDescription", ""), "", ""),
+            ("报单人", info.get("createName", ""), "电话", info.get("createMobile", "")),
+            ("接单人", info.get("acceptName") or "未接单", "状态", info.get("workorderStatusName", "")),
+            ("创建时间", info.get("createTime", ""), timeout_label, timeout_val),
+        ]
+        return rows
+
+    def _show_detail(self, rows: list[tuple]) -> None:
         try:
-            self.query_one("#detail-info-body", Static).update(text)
+            table = self.query_one("#detail-info-body", DataTable)
+            table.clear()
+            for ll, lv, rl, rv in rows:
+                table.add_row(ll, lv, rl, rv)
             self._log(f"[dim]{now_str()}[/dim]")
             self._log("[green]工单详情加载完成[/green]")
             self._log("")
@@ -334,16 +367,9 @@ class DetailScreen(ModalScreen):
 
     # ── 倒计时条 ────────────────────────────────────────
     def _update_time_bar(self) -> None:
-        if not self._detail_data:
-            return
-        feed_back = self._detail_data.get("feedBackTime", "")
-        try:
-            deadline = datetime.strptime(feed_back, "%Y-%m-%d %H:%M:%S") if feed_back else None
-        except (ValueError, TypeError):
-            deadline = None
-        if deadline:
-            remaining = format_remaining(deadline)
-            style = get_remaining_style(deadline)
+        if self._deadline:
+            remaining = format_remaining(self._deadline)
+            style = get_remaining_style(self._deadline, self._wo_type)
             text = f"[{style}]超时倒计时: {remaining}[/{style}]"
         else:
             text = "[dim]超时倒计时: 未知[/dim]"
@@ -447,6 +473,10 @@ class DetailScreen(ModalScreen):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.control.id != "detail-left-assign":
             return
+        # 已处于确认模式 → 鼠标点击等同于按 Y 确认
+        if self._confirm_mode:
+            self._execute_assign()
+            return
         try:
             table = event.control
             coord = table.cursor_coordinate
@@ -542,10 +572,22 @@ class DetailScreen(ModalScreen):
 
         threading.Thread(target=do_assign, daemon=True).start()
 
+    def _refresh_detail(self) -> None:
+        """刷新工单详情和指派列表"""
+        threading.Thread(target=self._fetch_detail, daemon=True).start()
+        threading.Thread(target=self._fetch_assignees, daemon=True).start()
+
+    def action_refresh_detail(self) -> None:
+        """R键刷新"""
+        self._log("[cyan]正在刷新...[/cyan]")
+        self._refresh_detail()
+
     def _on_assign_success(self, name: str) -> None:
         self._log(f"[bold green]指派成功！已分配给 {name}[/bold green]")
         self.notify(f"指派成功！已分配给 {name}", severity="information")
-        self.action_toggle_assign()
+        self._refresh_detail()
+        # 延迟3秒后切回日志模式，避免刷新未完成
+        threading.Timer(3, lambda: self.app.call_from_thread(self.action_toggle_assign)).start()
 
     def _on_assign_fail(self, msg: str) -> None:
         self._log(f"[bold red]指派失败: {msg}，请稍后重试[/bold red]")
@@ -742,7 +784,7 @@ class TicketMonitorApp(App):
         od_table = self.query_one("#od-table")
         od_table.add_column("工单编号", key="id", width=16)
         od_table.add_column("任务描述", key="desc")
-        od_table.add_column("状态", key="status", width=12)
+        od_table.add_column("状态", key="status", width=8)
         od_table.add_column("剩余时间", key="time", width=10)
         od_table.cursor_type = "row"
 
@@ -750,7 +792,7 @@ class TicketMonitorApp(App):
         pm_table.add_column("工单编号", key="id", width=16)
         pm_table.add_column("任务描述", key="desc")
         pm_table.add_column("处理人", key="handler", width=8)
-        pm_table.add_column("状态", key="status", width=12)
+        pm_table.add_column("状态", key="status", width=8)
         pm_table.add_column("剩余时间", key="time", width=10)
         pm_table.cursor_type = "row"
 
@@ -885,12 +927,12 @@ class TicketMonitorApp(App):
             if od_count > 0:
                 for item in od_items:
                     remaining_text = format_remaining(item["deadline"])
-                    remaining_style = get_remaining_style(item["deadline"])
+                    remaining_style = get_remaining_style(item["deadline"], "OD")
                     row = od_table.add_row(
                         item["workorderNo"],
                         truncate(item.get("workorderDescription", ""), 60),
-                        ralign(item.get("workorderStatusName", ""), 10),
-                        Text(ralign(remaining_text, 10), style=remaining_style),
+                        item.get("workorderStatusName", ""),
+                        Text(remaining_text, style=remaining_style),
                     )
                     self._od_row_keys.append(row)
             else:
@@ -908,7 +950,7 @@ class TicketMonitorApp(App):
             if pm_count > 0:
                 for item in pm_items:
                     remaining_text = format_remaining(item["deadline"])
-                    remaining_style = get_remaining_style(item["deadline"])
+                    remaining_style = get_remaining_style(item["deadline"], "PM")
                     handler = item.get("acceptName") or "None"
                     row = pm_table.add_row(
                         item["workorderNo"],
@@ -939,10 +981,10 @@ class TicketMonitorApp(App):
                 for i, item in enumerate(items):
                     if i < len(self._od_row_keys):
                         remaining_text = format_remaining(item["deadline"])
-                        remaining_style = get_remaining_style(item["deadline"])
+                        remaining_style = get_remaining_style(item["deadline"], "OD")
                         od_table.update_cell(
                             self._od_row_keys[i], "time",
-                            Text(ralign(remaining_text, 10), style=remaining_style),
+                            Text(remaining_text, style=remaining_style),
                         )
 
             pm_table = self.query_one("#pm-table")
@@ -951,10 +993,10 @@ class TicketMonitorApp(App):
                 for i, item in enumerate(items):
                     if i < len(self._pm_row_keys):
                         remaining_text = format_remaining(item["deadline"])
-                        remaining_style = get_remaining_style(item["deadline"])
+                        remaining_style = get_remaining_style(item["deadline"], "PM")
                         pm_table.update_cell(
                             self._pm_row_keys[i], "time",
-                            Text(ralign(remaining_text, 10), style=remaining_style),
+                            Text(remaining_text, style=remaining_style),
                         )
 
             # 同步更新标题栏中的超时状态颜色
@@ -1052,53 +1094,57 @@ class TicketMonitorApp(App):
         self.call_from_thread(self._refresh_tables)
 
     # ── 工单详情 & 指派 ────────────────────────────────────
-    def _get_selected_ticket(self) -> dict | None:
-        """获取当前光标所在行的工单数据，仅返回有效工单"""
-        # 占位提示文字
+    def _on_detail_dismissed(self) -> None:
+        """从详情页返回时延迟1秒自动刷新主页面"""
+        threading.Timer(1, self.action_force_refresh).start()
+
+    def _get_selected_ticket(self, table_id: str) -> dict | None:
+        """获取指定表格中光标所在行的工单数据"""
         _placeholders = {"暂无即将超时的临时性工单", "暂无即将超时的周期性工单",
                          "等待首次查询...", "暂无数据", ""}
-        for table_id in ("#od-table", "#pm-table"):
-            table = self.query_one(table_id)
-            try:
-                coord = table.cursor_coordinate
-                if coord is None:
-                    continue
-                row = table.get_row_at(coord[0])
-            except Exception:
-                continue
-            if not row or not row[0]:
-                continue
-            wo_no = str(row[0]).strip()
-            # 过滤占位提示文字
-            if wo_no in _placeholders or len(wo_no) < 5:
-                continue
-            # 从缓存数据找完整信息
-            for data in (self._latest_od_data, self._latest_pm_data):
-                if data:
-                    for item in data.get("data", []):
-                        if item["workorderNo"] == wo_no:
-                            return item
-            return {"workorderNo": wo_no}
-        return None
+        table = self.query_one(table_id)
+        try:
+            coord = table.cursor_coordinate
+            if coord is None:
+                return None
+            row = table.get_row_at(coord[0])
+        except Exception:
+            return None
+        if not row or not row[0]:
+            return None
+        wo_no = str(row[0]).strip()
+        if wo_no in _placeholders or len(wo_no) < 5:
+            return None
+        # 从缓存数据找完整信息
+        data_source = self._latest_od_data if table_id == "#od-table" else self._latest_pm_data
+        if data_source:
+            for item in data_source.get("data", []):
+                if item["workorderNo"] == wo_no:
+                    return item
+        return {"workorderNo": wo_no}
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Enter → 查看工单详情"""
         try:
-            if event.control.id not in ("od-table", "pm-table"):
+            table_id = event.control.id
+            if table_id not in ("od-table", "pm-table"):
                 return
-            ticket = self._get_selected_ticket()
+            ticket = self._get_selected_ticket(f"#{table_id}")
             if not ticket:
                 self.notify("当前行不是有效工单", severity="warning")
                 return
             self._selected_ticket = ticket
-            # 打开工单详情弹窗（内置指派功能）
-            self.push_screen(DetailScreen(
-                workorder_no=ticket["workorderNo"],
-                headers=self._api_headers,
-                etl_code=ticket.get("etlCode", ""),
-                source=self._api_source,
-                project_id=self._api_project_id,
-                wo_type="PM" if event.control.id == "pm-table" else "OD",
-            ))
+            # 打开工单详情弹窗（内置指派功能），关闭后自动刷新主页面
+            self.push_screen(
+                DetailScreen(
+                    workorder_no=ticket["workorderNo"],
+                    headers=self._api_headers,
+                    etl_code=ticket.get("etlCode", ""),
+                    source=self._api_source,
+                    project_id=self._api_project_id,
+                    wo_type="PM" if table_id == "pm-table" else "OD",
+                ),
+                callback=lambda _: self._on_detail_dismissed(),
+            )
         except Exception as e:
             self.notify(f"操作异常: {e}", severity="error")
