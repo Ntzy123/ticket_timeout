@@ -3,41 +3,37 @@
 import json, logging, os, requests, sys, urllib3
 from datetime import date, datetime, timedelta
 
+from lib.api import QUERY_URL, QUERY_BODY_TEMPLATE
+
 # 禁用SSL验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger("ticket_timeout")
 
-class Ticket:
-    
-    # 加载配置文件
-    def load(self, filename):
-        """
-        # 读取用户配置文件
-        with open(toml_filename, 'rb') as file:
-            self.content = self.config['query_content']
-            self.time_range = self.config['query_time_range']
-            self.shift = self.config['is_day_shift']
-        """
 
+class Ticket:
+
+    def __init__(self) -> None:
+        self.url: str = QUERY_URL
+        self.json: dict = dict(QUERY_BODY_TEMPLATE)  # 深拷贝防修改
+        self.headers: dict = {}
+        self.data: dict = {}
+
+    # 加载配置文件（仅加载请求头，URL 和 请求体模板来自 api.py）
+    def load(self, filename):
         # 尝试相对路径，若失败则回退到脚本所在目录
         if not os.path.isfile(filename):
             base = os.path.dirname(os.path.abspath(sys.argv[0]))
             filename = os.path.join(base, filename)
 
-        # 读取配置文件
+        # 读取配置文件（仅提取请求头）
         with open(filename, 'r', encoding='utf-8') as file:
             config = json.load(file)
-            self.url = config['url']
-            self.headers = config['headers']
-            self.json = config['json']
-            """ 查询并修改时间（弃用，转入query方法）
-            current_date = str(date.today())
-            yesterday_date = str(date.today() - timedelta(days=1))
-            self.json['data1'] = [yesterday_date, current_date]
-            self.json['startTime'] = f"{yesterday_date} 00:00:00"
-            self.json['endTime'] = f"{current_date} 23:59:59"
-            """
+            self.headers = config.get('headers', {})
+
+        # 每次 load 时重新从 api.py 获取 URL 和请求体模板（保证数据新鲜）
+        self.url = QUERY_URL
+        self.json = dict(QUERY_BODY_TEMPLATE)
 
     # 查询工单
     def query(self, serach=None, status=None, fm_type=None, ticket_type=None, time_range=None):
@@ -62,7 +58,7 @@ class Ticket:
                 self.json[key[2]] = end
             elif input_param[i] != None:   # 处理其他参数
                 self.json[key] = input_param[i]
-                
+
         # 发起POST请求并存储
         try:
             logger.info(f"[查询] URL: {self.url}")
@@ -88,7 +84,7 @@ class Ticket:
             records = self.data.get('data', {}).get('records', [])
         except AttributeError:
             return config
-        
+
         for record in records:
             data = {
                 "workorderNo": record.get('workorderNo'),
@@ -117,11 +113,11 @@ class Ticket:
                 self._timeout_pm(record, timeout_ticket)
             """ 测试用
             for data in timeout_ticket:
-                
+
                 text = (
                     f"任务描述：\t{record['workorderTitle']}\n"
                     f"接单人：\t{record['acceptName']}\n"
-                    f"超时时间：\t{record['feedBackTime']}\n" 
+                    f"超时时间：\t{record['feedBackTime']}\n"
                     + "-" * 20 + "\n"
                 )
                 print(text)
@@ -160,7 +156,7 @@ class Ticket:
                             break
             except FileNotFoundError:
                 pass
-            
+
             # 过滤2026开头的18位工单号
             try:
                 if (
@@ -171,7 +167,7 @@ class Ticket:
                     is_add = False
             except (TypeError, AttributeError):
                 pass
-            
+
             if is_add:
                 timeout_ticket['data'].append(data)
 

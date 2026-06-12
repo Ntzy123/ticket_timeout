@@ -22,6 +22,7 @@ from rich.text import Text
 from feature.ticket_timeout_pm import TicketTimeoutPM
 from feature.ticket_timeout_od import TicketTimeoutOD
 from lib.init_app import init_app
+from lib import api as lib_api
 
 logger = logging.getLogger("ticket_timeout")
 
@@ -106,7 +107,7 @@ def now_str() -> str:
 
 
 def load_api_config() -> dict:
-    """从配置文件加载 API 请求头、projectId、source（过滤掉请求体相关的固定字段）"""
+    """从配置文件加载 API 请求头（过滤掉固定字段）"""
     config_path = ".config.json"
     if not os.path.isfile(config_path):
         base = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -117,11 +118,7 @@ def load_api_config() -> dict:
     # 移除固定值字段，避免干扰不同 API 请求
     for k in ("Content-Length", "Accept-Encoding"):
         headers.pop(k, None)
-    return {
-        "headers": headers,
-        "project_id": cfg.get("json", {}).get("projectId", "52010017"),
-        "source": "02",
-    }
+    return headers
 
 
 # ── 工单详情界面（带指派） ─────────────────────────────
@@ -218,16 +215,20 @@ class DetailScreen(ModalScreen):
     ]
 
     def __init__(self, workorder_no: str, headers: dict, etl_code: str = "",
-                 source: str = "", project_id: str = "") -> None:
+                 source: str = "", project_id: str = "",
+                 wo_type: str = "PM") -> None:
         super().__init__()
         self.workorder_no = workorder_no
         self.headers = headers
         self.etl_code = etl_code
         self.source = source
         self.project_id = project_id
+        self._wo_type = wo_type
         self._detail_data: dict | None = None
         self._assignees: list = []
         self._selected_assignee: dict | None = None
+        self._pending_assignee: dict | None = None
+        self._confirm_mode = False
         self._assign_mode = False
 
     def compose(self) -> ComposeResult:
@@ -271,7 +272,7 @@ class DetailScreen(ModalScreen):
     # ── 详情 API ────────────────────────────────────────
     def _fetch_detail(self) -> None:
         try:
-            url = f"https://heimdallr.onewo.com/api/datacenter/workOrder-etl/api/workOrder-etl/feign/getFmWorkOrderDetail/{self.etl_code}"
+            url = lib_api.DETAIL_URL_TPL.format(etl_code=self.etl_code)
             logger.info(f"[详情] 请求 URL: {url}")
             resp = requests.get(url, headers=self.headers, verify=False, timeout=10)
             logger.info(f"[详情] HTTP {resp.status_code}, 响应长度={len(resp.text)}")
@@ -310,6 +311,8 @@ class DetailScreen(ModalScreen):
             f"[bold]地    址:[/bold]  {info.get('address', '')}",
             f"[bold]工单描述:[/bold]  {info.get('workorderDescription', '')}",
             "",
+            f"[bold]报 单 人:[/bold]  {info.get('createName', '      ')}    "
+            f"[bold]报单人电话:[/bold]  {info.get('createMobile', '')}",
             f"[bold]接 单 人:[/bold]  {info.get('acceptName') or '未接单'}    "
             f"[bold]状  态:[/bold]  {info.get('workorderStatusName', '')}",
             "",
@@ -352,19 +355,13 @@ class DetailScreen(ModalScreen):
     # ── 指派 API ────────────────────────────────────────
     def _fetch_assignees(self) -> None:
         try:
-            url = "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/assignmentList"
-            body = {
-                "bodyForm": {
-                    "projectCode": self.project_id,
-                    "queryParam": "",
-                    "workOrderNo": self.workorder_no,
-                },
-                "source": self.source,
-            }
-            logger.info(f"[详情指派] 请求 URL: {url}")
-            logger.info(f"[详情指派] 请求体: {json.dumps(body, ensure_ascii=False)}")
+            url = lib_api.ASSIGNEE_LIST_URL
+            body = lib_api.build_assignee_list_body(
+                project_code=self.project_id,
+                workorder_no=self.workorder_no,
+                source=self.source,
+            )
             resp = requests.post(url, json=body, headers=self.headers, verify=False, timeout=10)
-            logger.info(f"[详情指派] HTTP {resp.status_code}, 响应长度={len(resp.text)}")
             if resp.status_code != 200:
                 self._log("[red]指派列表请求失败[/red]")
                 return
@@ -372,22 +369,19 @@ class DetailScreen(ModalScreen):
             code = data.get("code")
             msg = data.get("msg", "未知")
             is_ok = data.get("isOk")
-            logger.info(f"[详情指派] 响应解析: code={code}, msg={msg}, isOk={is_ok}")
             if code in (200, "200") or msg == "success" or is_ok:
-                # 处理两种响应结构：{code:"200", data:{records:[]}} 或 {isOk:true, data:[]}
                 records = data.get("data", {})
                 if isinstance(records, dict):
                     records = records.get("records", [])
                 if records:
                     self._assignees = records
                     self.app.call_from_thread(self._populate_assign_table, records)
-                    self._log(f"[green]已加载 {len(records)} 位可指派人员[/green]")
                 else:
                     self._log("[yellow]该工单无可指派人员[/yellow]")
             else:
                 self._log(f"[red]获取指派列表失败: {msg}[/red]")
         except Exception as e:
-            logger.error(f"[详情指派] 异常: {e}")
+            logger.error(f"[详情指派] 异常: {e}", exc_info=True)
             self._log(f"[red]指派列表异常: {e}[/red]")
 
     def _populate_assign_table(self, records: list = None) -> None:
@@ -417,6 +411,8 @@ class DetailScreen(ModalScreen):
             log.styles.display = "block"
             assign_table.styles.display = "none"
             self._assign_mode = False
+            self._confirm_mode = False
+            self._pending_assignee = None
             self.set_focus(log)
         else:
             # 切换到指派模式（展宽左侧面板）
@@ -452,10 +448,12 @@ class DetailScreen(ModalScreen):
         if event.control.id != "detail-left-assign":
             return
         try:
-            coord = event.cursor_coordinate
+            table = event.control
+            coord = table.cursor_coordinate
             if coord is None:
                 return
-            row = event.control.get_row_at(coord[0])
+            row_index = coord[0]
+            row = table.get_row_at(row_index)
             if not row or not row[0]:
                 return
             name = str(row[0]).strip()
@@ -463,19 +461,95 @@ class DetailScreen(ModalScreen):
             matched = next((r for r in self._assignees
                            if (r.get("userName", r.get("dealUserName", r.get("realName", ""))) == name)), None)
             if matched:
-                self._selected_assignee = matched
-                role = matched.get("roleName", "")
+                self._pending_assignee = matched
+                self._confirm_mode = True
                 mobile = matched.get("mobile", "")
-                self._log(f"[green]已选: {name} ({role})[/green]")
-                self.notify(f"已选择: {name} | {role} | {mobile}", severity="information")
+                self._log(f"[yellow]确认将该工单指派给 {name}（{mobile}）？[/yellow]")
+                self.notify(f"确认指派给 {name}（{mobile}）？", severity="warning")
+                # 焦点移到日志区域，防止 Enter 再次触发行选中
+                self.set_focus(self.query_one("#detail-left-log"))
             else:
-                self._log(f"[green]已选: {name}[/green]")
-                self._selected_assignee = {"userName": name}
+                self._log(f"[yellow]未找到人员完整信息，请重新选择[/yellow]")
         except Exception as e:
             self.notify(f"选择异常: {e}", severity="error")
 
     def action_close(self) -> None:
-        self.dismiss()
+        if self._assign_mode and self._confirm_mode:
+            self._cancel_assign()
+        else:
+            self.dismiss()
+
+    # ── 确认/取消指派 ────────────────────────────────────
+    def on_key(self, event) -> None:
+        """拦截确认模式下的按键"""
+        if self._assign_mode and self._confirm_mode:
+            if event.key in ("enter", "y", "Y"):
+                event.stop()
+                self._execute_assign()
+                return
+            if event.key in ("escape", "q", "Q"):
+                event.stop()
+                self._cancel_assign()
+                return
+
+    def _cancel_assign(self) -> None:
+        self._confirm_mode = False
+        self._pending_assignee = None
+        self._log("[dim]已取消指派[/dim]")
+        self.set_focus(self.query_one("#detail-left-search"))
+
+    def _execute_assign(self) -> None:
+        """实际执行指派 API 请求"""
+        if not self._pending_assignee:
+            return
+        assignee = self._pending_assignee
+        name = assignee.get("userName", assignee.get("dealUserName", assignee.get("realName", "")))
+        mobile = assignee.get("mobile", "")
+        user_id = assignee.get("userId", assignee.get("dealUserId", ""))
+
+        self._confirm_mode = False
+        self._pending_assignee = None
+
+        body = lib_api.build_assign_body(
+            deal_user_id=user_id,
+            deal_user_mobile=mobile,
+            deal_user_name=name,
+            project_code=self.project_id,
+            workorder_no=self.workorder_no,
+            wo_type=self._wo_type,
+            source=self.source,
+        )
+
+        self._log(f"[cyan]正在指派给 {name}（{mobile}）...[/cyan]")
+
+        def do_assign() -> None:
+            try:
+                resp = requests.post(
+                    lib_api.ASSIGN_URL, json=body, headers=self.headers, verify=False, timeout=10,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("isOk") or str(data.get("code", "")) in ("200",):
+                        self.app.call_from_thread(lambda: self._on_assign_success(name))
+                    else:
+                        msg = data.get("msg", "未知错误")
+                        self.app.call_from_thread(lambda: self._on_assign_fail(msg))
+                else:
+                    self.app.call_from_thread(lambda: self._on_assign_fail(f"HTTP {resp.status_code}"))
+            except Exception as e:
+                logger.error(f"[指派] 异常: {e}", exc_info=True)
+                self.app.call_from_thread(lambda: self._on_assign_fail(str(e)))
+
+        threading.Thread(target=do_assign, daemon=True).start()
+
+    def _on_assign_success(self, name: str) -> None:
+        self._log(f"[bold green]指派成功！已分配给 {name}[/bold green]")
+        self.notify(f"指派成功！已分配给 {name}", severity="information")
+        self.action_toggle_assign()
+
+    def _on_assign_fail(self, msg: str) -> None:
+        self._log(f"[bold red]指派失败: {msg}，请稍后重试[/bold red]")
+        self.notify(f"指派失败: {msg}", severity="error")
 
 
 class TicketMonitorApp(App):
@@ -649,9 +723,9 @@ class TicketMonitorApp(App):
         # 加载 API 配置
         try:
             cfg = load_api_config()
-            self._api_headers = cfg["headers"]
-            self._api_project_id = cfg["project_id"]
-            self._api_source = cfg["source"]
+            self._api_headers = cfg
+            self._api_project_id = lib_api.DEFAULT_PROJECT_ID
+            self._api_source = lib_api.DEFAULT_SOURCE
         except Exception:
             self._log("[bold red]API配置加载失败[/bold red]")
 
@@ -668,7 +742,7 @@ class TicketMonitorApp(App):
         od_table = self.query_one("#od-table")
         od_table.add_column("工单编号", key="id", width=16)
         od_table.add_column("任务描述", key="desc")
-        od_table.add_column("状态", key="status", width=8)
+        od_table.add_column("状态", key="status", width=12)
         od_table.add_column("剩余时间", key="time", width=10)
         od_table.cursor_type = "row"
 
@@ -676,7 +750,7 @@ class TicketMonitorApp(App):
         pm_table.add_column("工单编号", key="id", width=16)
         pm_table.add_column("任务描述", key="desc")
         pm_table.add_column("处理人", key="handler", width=8)
-        pm_table.add_column("状态", key="status", width=8)
+        pm_table.add_column("状态", key="status", width=12)
         pm_table.add_column("剩余时间", key="time", width=10)
         pm_table.cursor_type = "row"
 
@@ -1024,6 +1098,7 @@ class TicketMonitorApp(App):
                 etl_code=ticket.get("etlCode", ""),
                 source=self._api_source,
                 project_id=self._api_project_id,
+                wo_type="PM" if event.control.id == "pm-table" else "OD",
             ))
         except Exception as e:
             self.notify(f"操作异常: {e}", severity="error")

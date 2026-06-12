@@ -6,7 +6,6 @@ import json
 BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(sys.argv[0]))
 
 DEFAULT_CONFIG = {
-    "url": "https://heimdallr.onewo.com/api/task/courier/admin/task/work-order/queryCourierTaskWorkOrderEtlPage",
     "headers": {
         "Host": "heimdallr.onewo.com",
         "Connection": "keep-alive",
@@ -35,26 +34,6 @@ DEFAULT_CONFIG = {
         "Cookie": "acw_tc=0ae5a7e317456325190965284e006ab92915f016161e0b7b98f8c5fca780e5",
         "Accept-Encoding": "gzip, deflate",
         "Content-Length": "392"
-    },
-    "json": {
-        "workorderNo": "",
-        "createMobile": "",
-        "projectId": "52010017",
-        "workorderStatus": "[\"1\",\"1001\",\"1002\",\"1003\",\"1004\",\"1005\",\"1013\",\"1014\",\"4040\",\"6\",\"3\",\"4\",\"5\",\"1006\",\"1007\",\"1008\",\"1015\",\"4041\",\"10\",\"1017\",\"1091\"]",
-        "sourceKeyList": [],
-        "date1": [
-            "2025-01-28",
-            "2025-04-28"
-        ],
-        "fmWoType": "PM",
-        "current": 1,
-        "limit": 100,
-        "startTime": "2025-01-28 00:00:00",
-        "endTime": "2025-04-28 23:59:59",
-        "workOrderTypeNoList": [
-            "5"
-        ],
-        "type": "1"
     }
 }
 
