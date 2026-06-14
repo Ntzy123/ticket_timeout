@@ -51,4 +51,4 @@ exit
     rem
 exit
 
-REM python main.py
+REM python run.py
