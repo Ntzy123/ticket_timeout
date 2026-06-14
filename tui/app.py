@@ -278,7 +278,7 @@ class DetailScreen(ModalScreen):
         # 详情表格：4列（左标签/左值/右标签/右值）无边框无光标
         detail_table = self.query_one("#detail-info-body", DataTable)
         detail_table.wrap = True
-        detail_table.row_height = 4  # 行高拉高，给描述行留出换行空间
+        detail_table.row_height = 6  # 行高拉高，给描述行留出换行空间
         detail_table.add_column("", key="ll", width=10)
         detail_table.add_column("", key="lv", width=30)
         detail_table.add_column("", key="rl", width=10)
@@ -322,6 +322,30 @@ class DetailScreen(ModalScreen):
             logger.error(f"[详情] 请求异常: {e}", exc_info=True)
             self.app.call_from_thread(lambda: self._show_detail([("", f"[red]请求异常: {e}[/red]", "", "")]))
 
+    @staticmethod
+    def _wrap_text(text: str, max_width: int = 30) -> str:
+        """按视觉宽度裁切文本（中文=2，英文=1），超出自动换行"""
+        lines = []
+        cur = ""
+        cur_w = 0
+        for ch in text:
+            w = 1 if ch.isascii() else 2
+            if ch == '\n':
+                lines.append(cur)
+                cur = ""
+                cur_w = 0
+                continue
+            if cur_w + w > max_width:
+                lines.append(cur)
+                cur = ch
+                cur_w = w
+            else:
+                cur += ch
+                cur_w += w
+        if cur:
+            lines.append(cur)
+        return "\n".join(lines)
+
     def _format_detail(self, info: dict) -> list[tuple]:
         # 计算倒计时截止时间
         self._deadline = None
@@ -361,7 +385,7 @@ class DetailScreen(ModalScreen):
             ("接单人：", info.get("acceptName") or "未接单", "状态：", info.get("workorderStatusName", "")),
             ("创建时间：", info.get("createTime", ""), f"{timeout_label}：", timeout_val),
             ("", "", "剩余时间：", remaining_cell),
-            ("工单描述：", info.get("workorderDescription", ""), "", ""),  # 放到最下方，利用行高换行显示
+            ("工单描述：", self._wrap_text(info.get("workorderDescription", "")), "", ""),  # 手动裁切换行
         ]
         return rows
 
@@ -607,8 +631,8 @@ class DetailScreen(ModalScreen):
         self.notify(f"指派成功！已分配给 {name}", severity="information")
         # 先切回详情日志视图
         self.action_toggle_assign()
-        # 延迟3秒后刷新详情（等价于按 R 键）
-        threading.Timer(3, lambda: self.app.call_from_thread(self.action_refresh_detail)).start()
+        # 延迟5秒后刷新详情（等价于按 R 键）
+        threading.Timer(5, lambda: self.app.call_from_thread(self.action_refresh_detail)).start()
 
     def _on_assign_fail(self, msg: str) -> None:
         self._log(f"[bold red]指派失败: {msg}，请稍后重试[/bold red]")
@@ -873,8 +897,10 @@ class TicketMonitorApp(App):
                 self._log(f"[bold red]OD周期异常: {e}[/bold red]")
                 time.sleep(10)
 
-    def _run_od_query(self):
-        """执行一次OD查询并输出结果日志"""
+    def _run_od_query(self, suppress_notifications: bool = False):
+        """执行一次OD查询并输出结果日志
+        suppress_notifications=True 时抑制弹窗和语音提醒（用于手动刷新）
+        """
         try:
             self._tkod.query()
             while self._tkod.content is None:
@@ -889,8 +915,9 @@ class TicketMonitorApp(App):
             self._log(f"[dim]{now_str()}[/dim]")
             if od_count > 0:
                 self._log(f"[bold red]发现 {od_count} 个即将超时的临时性工单[/bold red]")
-                self._play_sound()
-                if new_ids:
+                if not suppress_notifications:
+                    self._play_sound()
+                if new_ids and not suppress_notifications:
                     self._show_popup(f"你有 {len(new_ids)} 条临时性工单即将超时，请及时处理！")
                     self._notified_od_ids.update(new_ids)
             else:
@@ -901,8 +928,10 @@ class TicketMonitorApp(App):
             logger.error(f"[OD查询] 异常: {e}")
             self._log(f"[bold red]OD查询异常: {e}[/bold red]")
 
-    def _run_pm_query(self):
-        """执行一次PM查询并输出结果日志（仅剩余<30分钟时告警）"""
+    def _run_pm_query(self, suppress_notifications: bool = False):
+        """执行一次PM查询并输出结果日志（仅剩余<30分钟时告警）
+        suppress_notifications=True 时抑制弹窗和语音提醒（用于手动刷新）
+        """
         try:
             self._tkpm.query()
             while self._tkpm.content is None:
@@ -919,8 +948,9 @@ class TicketMonitorApp(App):
             self._log(f"[dim]{now_str()}[/dim]")
             if critical:
                 self._log(f"[bold yellow]发现 {len(critical)} 个即将超时的周期性工单（剩余 < 30 分钟）[/bold yellow]")
-                self._play_sound()
-                if new_critical_ids:
+                if not suppress_notifications:
+                    self._play_sound()
+                if new_critical_ids and not suppress_notifications:
                     self._show_popup(f"你有 {len(new_critical_ids)} 条周期性工单即将超时，请及时处理！")
                     self._notified_pm_ids.update(new_critical_ids)
             else:
@@ -933,14 +963,19 @@ class TicketMonitorApp(App):
 
     # ── 界面刷新 ────────────────────────────────────────────
     def _refresh_tables(self):
-        """新数据到达时刷新表格"""
+        """新数据到达时刷新表格（重建列以重置列宽）"""
         with self._lock:
             od_data = self._latest_od_data
             pm_data = self._latest_pm_data
 
-        # 更新OD表格
+        # 重建OD表格（清空所有列和行，重新定义列宽）
         od_table = self.query_one("#od-table")
-        od_table.clear()
+        od_table.clear(columns=True)
+        od_table.add_column("工单编号", key="id", width=16)
+        od_table.add_column("任务描述", key="desc")
+        od_table.add_column("状态", key="status", width=8)
+        od_table.add_column("剩余时间", key="time", width=10)
+        od_table.cursor_type = "row"
         self._od_row_keys.clear()
         if od_data is not None:
             od_count = int(od_data.get("num", 0))
@@ -961,9 +996,15 @@ class TicketMonitorApp(App):
         else:
             od_table.add_row("", "等待首次查询...", "", "")
 
-        # 更新PM表格
+        # 重建PM表格
         pm_table = self.query_one("#pm-table")
-        pm_table.clear()
+        pm_table.clear(columns=True)
+        pm_table.add_column("工单编号", key="id", width=16)
+        pm_table.add_column("任务描述", key="desc")
+        pm_table.add_column("处理人", key="handler", width=8)
+        pm_table.add_column("状态", key="status", width=8)
+        pm_table.add_column("剩余时间", key="time", width=10)
+        pm_table.cursor_type = "row"
         self._pm_row_keys.clear()
         if pm_data is not None:
             pm_count = int(pm_data.get("num", 0))
@@ -1085,23 +1126,50 @@ class TicketMonitorApp(App):
 
     # ── 定时关机 ────────────────────────────────────────────
     def _shutdown_watcher(self):
-        """定期检查互联网时间，到达指定时间后关闭程序"""
+        """定期检查互联网时间(1分钟间隔)，距离目标2分钟内启动本地倒计时精确关闭"""
         if self.end_time is None:
             return
         end_hour, end_minute = self.end_time
         tz_shanghai = timezone(timedelta(hours=8))
+
+        def _calc_remaining(now_shanghai):
+            """计算当前到目标时间的剩余秒数，目标已过则视为次日"""
+            target = now_shanghai.replace(
+                hour=end_hour, minute=end_minute, second=0, microsecond=0
+            )
+            if target <= now_shanghai:
+                target += timedelta(days=1)
+            return (target - now_shanghai).total_seconds()
+
         while True:
             try:
                 now = fetch_internet_time()
                 if now is not None:
                     now_shanghai = now.astimezone(tz_shanghai)
-                    if now_shanghai.hour == end_hour and now_shanghai.minute >= end_minute:
-                        self._log(f"[bold red]已到达设定结束时间 {end_hour:02d}:{end_minute:02d}，程序退出中...[/bold red]")
-                        self.call_from_thread(self.exit)
+                    remaining = _calc_remaining(now_shanghai)
+
+                    if remaining <= 120:
+                        self._log(
+                            f"[yellow]距离关闭时间 {end_hour:02d}:{end_minute:02d} "
+                            f"仅剩 {int(remaining)} 秒，启动本地倒计时精确关闭...[/yellow]"
+                        )
+                        threading.Thread(
+                            target=self._local_countdown_exit,
+                            args=(remaining, end_hour, end_minute),
+                            daemon=True,
+                        ).start()
                         return
-                time.sleep(30)
+                time.sleep(60)
             except Exception:
                 time.sleep(60)
+
+    def _local_countdown_exit(self, seconds: float, end_hour: int, end_minute: int):
+        """本地精确定时休眠，到达后退出程序"""
+        time.sleep(max(0, seconds))
+        self._log(
+            f"[bold red]已到达设定结束时间 {end_hour:02d}:{end_minute:02d}，程序退出中...[/bold red]"
+        )
+        self.call_from_thread(self.exit)
 
     # ── 动作 ────────────────────────────────────────────────
     def action_force_refresh(self):
@@ -1110,17 +1178,17 @@ class TicketMonitorApp(App):
         t.start()
 
     def _force_refresh_all(self):
-        """串行执行OD和PM强制刷新，确保日志顺序"""
-        self._run_od_query()
-        self._run_pm_query()
+        """串行执行OD和PM强制刷新（抑制弹窗和语音），确保日志顺序"""
+        self._run_od_query(suppress_notifications=True)
+        self._run_pm_query(suppress_notifications=True)
 
         self._log("")
         self.call_from_thread(self._refresh_tables)
 
     # ── 工单详情 & 指派 ────────────────────────────────────
     def _on_detail_dismissed(self) -> None:
-        """从详情页返回时延迟1秒自动刷新主页面"""
-        threading.Timer(1, self.action_force_refresh).start()
+        """从详情页返回时延迟5秒自动刷新主页面"""
+        threading.Timer(5, self.action_force_refresh).start()
 
     def _get_selected_ticket(self, table_id: str) -> dict | None:
         """获取指定表格中光标所在行的工单数据"""
