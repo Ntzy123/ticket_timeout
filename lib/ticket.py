@@ -147,15 +147,6 @@ class Ticket:
             }
             # 过滤不需要提醒的工单
             is_add = True
-            try:  # 如果文件不存在则不过滤
-                with open ("ignore.txt", "r", encoding="utf-8") as file:
-                    ignores = file.read()
-                    for ignore in ignores.split("\n"):
-                        if data['workorderNo'] == ignore:
-                            is_add = False
-                            break
-            except FileNotFoundError:
-                pass
 
             # 过滤2026开头的18位工单号
             try:

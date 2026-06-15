@@ -6,6 +6,7 @@ import threading
 import time
 import sys
 import os
+import tomllib
 import pygame
 import requests
 import logging
@@ -21,7 +22,7 @@ from rich.text import Text
 
 from feature.ticket_timeout_pm import TicketTimeoutPM
 from feature.ticket_timeout_od import TicketTimeoutOD
-from lib.init_app import init_app
+from lib.init_app import init_app, BASE_DIR
 from lib import api as lib_api
 
 logger = logging.getLogger("ticket_timeout")
@@ -125,6 +126,59 @@ def load_api_config() -> dict:
     for k in ("Content-Length", "Accept-Encoding"):
         headers.pop(k, None)
     return headers
+
+
+# ── TOML 忽略工单管理 ───────────────────────────────────
+IGNORE_FILE = os.path.join(BASE_DIR, "ignored.toml")
+
+
+def load_ignored() -> list[dict]:
+    """加载 ignored.toml，返回 [{workorder_no, description, reason}, ...]"""
+    try:
+        with open(IGNORE_FILE, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("ignore", [])
+    except (FileNotFoundError, tomllib.TOMLDecodeError):
+        return []
+
+
+def load_ignored_set() -> set[str]:
+    """仅返回已忽略工单号的集合（用于过滤）"""
+    return {r["workorder_no"] for r in load_ignored()}
+
+
+def add_ignored(wo_no: str, description: str = "", reason: str = ""):
+    """追加一条忽略记录"""
+    records = load_ignored()
+    if any(r["workorder_no"] == wo_no for r in records):
+        return
+    records.append({
+        "workorder_no": wo_no,
+        "description": description,
+        "reason": reason,
+    })
+    _write_ignored(records)
+
+
+def remove_ignored(wo_no: str):
+    """从 TOML 中移除指定工单号"""
+    records = [r for r in load_ignored() if r["workorder_no"] != wo_no]
+    _write_ignored(records)
+
+
+def _write_ignored(records: list[dict]):
+    """回写 TOML 文件"""
+    lines = ["# 已忽略工单列表\n"]
+    for r in records:
+        lines.append("[[ignore]]\n")
+        lines.append(f'workorder_no = "{r["workorder_no"]}"\n')
+        if r.get("description"):
+            lines.append(f'description = "{r["description"]}"\n')
+        if r.get("reason"):
+            lines.append(f'reason = "{r["reason"]}"\n')
+        lines.append("\n")
+    with open(IGNORE_FILE, "w", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 # ── 工单详情界面（带指派） ─────────────────────────────
@@ -659,6 +713,95 @@ class DetailScreen(ModalScreen):
         self.notify(f"指派失败: {msg}", severity="error")
 
 
+# ── 已忽略工单管理弹窗 ─────────────────────────────────
+class IgnoreListScreen(ModalScreen):
+    """查看和管理已忽略工单"""
+
+    CSS = """
+    Screen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.35);
+    }
+
+    #ignore-container {
+        width: 60;
+        height: 20;
+        border: tall $secondary;
+        background: $panel;
+    }
+
+    #ignore-header {
+        background: $primary-background;
+        color: $text;
+        padding: 0 1;
+        border-bottom: tall $secondary;
+        text-style: bold;
+        width: 100%;
+    }
+
+    #ignore-table {
+        height: 1fr;
+    }
+
+    #ignore-footer {
+        padding: 0 1;
+        border-top: tall $secondary;
+        background: $panel;
+    }
+    """
+
+    BINDINGS = [
+        Binding("q", "close", "返回", key_display="Q"),
+        Binding("escape", "close", "返回"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="ignore-container"):
+            yield Static("═══ 已忽略工单 ═══", id="ignore-header")
+            yield DataTable(id="ignore-table")
+            yield Static("[dim]Enter 取消忽略  Esc 返回[/dim]", id="ignore-footer")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#ignore-table", DataTable)
+        table.add_column("工单编号", key="id", width=20)
+        table.add_column("工单描述", key="desc")
+        table.cursor_type = "row"
+        self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        records = load_ignored()
+        table = self.query_one("#ignore-table", DataTable)
+        table.clear()
+        for r in records:
+            table.add_row(
+                r.get("workorder_no", ""),
+                r.get("description", ""),
+            )
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.control.id != "ignore-table":
+            return
+        table = event.control
+        try:
+            coord = table.cursor_coordinate
+            if coord is None:
+                return
+            row = table.get_row_at(coord[0])
+        except Exception:
+            return
+        if not row or not row[0]:
+            return
+        wo_no = str(row[0]).strip()
+        if len(wo_no) < 5:
+            return
+        remove_ignored(wo_no)
+        self._refresh_list()
+        self.notify(f"已取消忽略工单 {wo_no}", severity="information")
+
+    def action_close(self) -> None:
+        self.dismiss()
+
+
 class TicketMonitorApp(App):
     """工单超时监控终端 - TUI 应用"""
 
@@ -750,6 +893,8 @@ class TicketMonitorApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "退出", key_display="Ctrl+Q"),
         Binding("r", "force_refresh", "刷新", key_display="R"),
+        Binding("i", "ignore_ticket", "忽略工单", key_display="I"),
+        Binding("v", "manage_ignored", "忽略列表", key_display="V"),
     ]
 
     def __init__(self, wait_time: int = 120, end_time: tuple = None, **kwargs):
@@ -773,6 +918,7 @@ class TicketMonitorApp(App):
         self._selected_ticket: dict | None = None  # 当前按Enter选中的工单
         self._od_row_keys: list = []  # OD表格行key（用于原地更新剩余时间）
         self._pm_row_keys: list = []  # PM表格行key
+        self._ignored_set: set[str] = set()  # 已忽略工单号集合
 
     # ── 日志推送（线程安全） ──────────────────────────────────
     def _log(self, msg: str):
@@ -810,6 +956,9 @@ class TicketMonitorApp(App):
     def on_mount(self) -> None:
         # 初始化配置
         init_app()
+
+        # 加载已忽略工单
+        self._ignored_set = load_ignored_set()
 
         # 认证检查
         try:
@@ -931,7 +1080,7 @@ class TicketMonitorApp(App):
             od_count = len(od_items)
             msg = self._tkod.content.get("msg", "unknown") if self._tkod.content else "unknown"
             logger.info(f"[OD查询] msg={msg}, 超时工单数={od_count}")
-            new_ids = {i['workorderNo'] for i in od_items} - self._notified_od_ids
+            new_ids = {i['workorderNo'] for i in od_items} - self._notified_od_ids - self._ignored_set
             self._log(f"[dim]{now_str()}[/dim]")
             if od_count > 0:
                 self._log(f"[bold red]发现 {od_count} 个即将超时的临时性工单[/bold red]")
@@ -964,7 +1113,7 @@ class TicketMonitorApp(App):
             # 仅统计剩余时间 < 30 分钟的作为"即将超时"
             now = datetime.now()
             critical = [i for i in pm_items if (i['deadline'] - now).total_seconds() < 1800]
-            new_critical_ids = {i['workorderNo'] for i in critical} - self._notified_pm_ids
+            new_critical_ids = {i['workorderNo'] for i in critical} - self._notified_pm_ids - self._ignored_set
             self._log(f"[dim]{now_str()}[/dim]")
             if critical:
                 self._log(f"[bold yellow]发现 {len(critical)} 个即将超时的周期性工单（剩余 < 30 分钟）[/bold yellow]")
@@ -1002,6 +1151,8 @@ class TicketMonitorApp(App):
             od_items = od_data.get("data", [])
             if od_count > 0:
                 for item in od_items:
+                    if item["workorderNo"] in self._ignored_set:
+                        continue
                     remaining_text = format_remaining(item["deadline"])
                     remaining_style = get_remaining_style(item["deadline"], "OD")
                     row = od_table.add_row(
@@ -1031,6 +1182,8 @@ class TicketMonitorApp(App):
             pm_items = pm_data.get("data", [])
             if pm_count > 0:
                 for item in pm_items:
+                    if item["workorderNo"] in self._ignored_set:
+                        continue
                     remaining_text = format_remaining(item["deadline"])
                     remaining_style = get_remaining_style(item["deadline"], "PM")
                     handler = item.get("acceptName") or "None"
@@ -1059,7 +1212,7 @@ class TicketMonitorApp(App):
 
             od_table = self.query_one("#od-table")
             if od_data and int(od_data.get("num", 0)) > 0:
-                items = od_data.get("data", [])
+                items = [i for i in od_data.get("data", []) if i["workorderNo"] not in self._ignored_set]
                 for i, item in enumerate(items):
                     if i < len(self._od_row_keys):
                         remaining_text = format_remaining(item["deadline"])
@@ -1071,7 +1224,7 @@ class TicketMonitorApp(App):
 
             pm_table = self.query_one("#pm-table")
             if pm_data and int(pm_data.get("num", 0)) > 0:
-                items = pm_data.get("data", [])
+                items = [i for i in pm_data.get("data", []) if i["workorderNo"] not in self._ignored_set]
                 for i, item in enumerate(items):
                     if i < len(self._pm_row_keys):
                         remaining_text = format_remaining(item["deadline"])
@@ -1092,16 +1245,22 @@ class TicketMonitorApp(App):
             od_data = self._latest_od_data
             pm_data = self._latest_pm_data
 
-        od_count = int(od_data.get("num", 0)) if od_data else -1
-        pm_count = int(pm_data.get("num", 0)) if pm_data else -1
+        # 计算实际显示数量（排除已忽略项）
+        if od_data:
+            od_items = [i for i in od_data.get("data", []) if i["workorderNo"] not in self._ignored_set]
+        else:
+            od_items = []
+        od_count = len(od_items) if od_data else -1
 
-        # PM临界数量（剩余 < 30 分钟）
-        now = datetime.now()
-        pm_critical = 0
         if pm_data:
-            for item in pm_data.get("data", []):
-                if (item['deadline'] - now).total_seconds() < 1800:
-                    pm_critical += 1
+            pm_items = [i for i in pm_data.get("data", []) if i["workorderNo"] not in self._ignored_set]
+        else:
+            pm_items = []
+        pm_count = len(pm_items) if pm_data else -1
+
+        # PM临界数量（剩余 < 30 分钟，同样排除忽略项）
+        now = datetime.now()
+        pm_critical = sum(1 for item in pm_items if (item['deadline'] - now).total_seconds() < 1800)
 
         od_header = self.query_one("#od-header")
         pm_header = self.query_one("#pm-header")
@@ -1204,6 +1363,73 @@ class TicketMonitorApp(App):
 
         self._log("")
         self.call_from_thread(self._refresh_tables)
+
+    # ── 忽略工单 ────────────────────────────────────────────
+    def _find_focused_ticket(self) -> tuple[dict | None, str]:
+        """检查OD和PM表格的焦点，返回 (ticket_data, table_type) 或 (None, "")"""
+        for table_id, data_source, wo_type in [
+            ("#od-table", self._latest_od_data, "OD"),
+            ("#pm-table", self._latest_pm_data, "PM"),
+        ]:
+            table = self.query_one(table_id)
+            try:
+                coord = table.cursor_coordinate
+                if coord is None:
+                    continue
+                row = table.get_row_at(coord[0])
+            except Exception:
+                continue
+            if not row or not row[0]:
+                continue
+            wo_no = str(row[0]).strip()
+            _placeholders = {"暂无即将超时的临时性工单", "暂无即将超时的周期性工单",
+                             "等待首次查询...", "暂无数据", ""}
+            if wo_no in _placeholders or len(wo_no) < 5:
+                continue
+            # 从缓存数据找完整信息
+            if data_source:
+                for item in data_source.get("data", []):
+                    if item["workorderNo"] == wo_no:
+                        return item, wo_type
+            return {"workorderNo": wo_no}, wo_type
+        return None, ""
+
+    def action_ignore_ticket(self) -> None:
+        """忽略光标所在临时性工单（I键，仅OD可忽略）"""
+        ticket, wo_type = self._find_focused_ticket()
+        if not ticket:
+            self.notify("请在有效工单行上按 I 键忽略", severity="warning")
+            return
+        if wo_type != "OD":
+            self.notify("仅临时性工单可忽略", severity="warning")
+            return
+        wo_no = ticket["workorderNo"]
+        if wo_no in self._ignored_set:
+            self.notify(f"工单 {wo_no} 已忽略", severity="information")
+            return
+
+        desc = ticket.get("workorderDescription", "")
+        add_ignored(wo_no, description=desc)
+        self._ignored_set.add(wo_no)
+        # 从已通知集合中移除，避免再次弹窗
+        self._notified_od_ids.discard(wo_no)
+        self._notified_pm_ids.discard(wo_no)
+        self._log(f"[yellow]工单 {wo_no} 已忽略[/yellow]")
+        self.notify(f"工单 {wo_no} 已忽略", severity="information")
+        self._refresh_tables()
+
+    def action_manage_ignored(self) -> None:
+        """打开已忽略工单管理弹窗（V键）"""
+        self.push_screen(
+            IgnoreListScreen(),
+            callback=lambda _: self._on_ignore_screen_dismissed(),
+        )
+
+    def _on_ignore_screen_dismissed(self) -> None:
+        """从忽略管理返回时重新加载忽略列表并刷新表格"""
+        self._ignored_set = load_ignored_set()
+        self._log("[dim]已忽略工单列表已更新[/dim]")
+        self._refresh_tables()
 
     # ── 工单详情 & 指派 ────────────────────────────────────
     def _on_detail_dismissed(self) -> None:

@@ -1,0 +1,14 @@
+# 已忽略工单列表
+[[ignore]]
+workorder_no = "202505130912345678"
+description = "3号楼设备间周期性巡检"
+
+[[ignore]]
+workorder_no = "202505140801234567"
+description = "紧急维修 - 水泵故障"
+reason = "现场已安排人员处理"
+
+[[ignore]]
+workorder_no = "202505150923456789"
+description = "配电房维保"
+

@@ -41,12 +41,13 @@ DEFAULT_CONFIG = {
 def init_app():
     """检测并创建运行所需的配置文件"""
     config_path = os.path.join(BASE_DIR, ".config.json")
-    ignore_path = os.path.join(BASE_DIR, "ignore.txt")
+    ignore_path = os.path.join(BASE_DIR, "ignored.toml")
 
     if not os.path.exists(config_path):
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=4)
 
     if not os.path.exists(ignore_path):
+        # 创建空文件（仅含注释头）
         with open(ignore_path, "w", encoding="utf-8") as f:
-            pass
+            f.write("# 已忽略工单列表\n")
