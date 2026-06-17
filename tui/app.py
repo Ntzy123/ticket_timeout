@@ -1069,6 +1069,7 @@ class TicketMonitorApp(App):
     def _run_od_query(self, suppress_notifications: bool = False):
         """执行一次OD查询并输出结果日志
         suppress_notifications=True 时抑制弹窗和语音提醒（用于手动刷新）
+        表格显示所有即将超时的临时性工单，但仅对剩余时间 <= 15 分钟的工单弹窗+声音提醒
         """
         try:
             self._tkod.query()
@@ -1080,15 +1081,21 @@ class TicketMonitorApp(App):
             od_count = len(od_items)
             msg = self._tkod.content.get("msg", "unknown") if self._tkod.content else "unknown"
             logger.info(f"[OD查询] msg={msg}, 超时工单数={od_count}")
-            new_ids = {i['workorderNo'] for i in od_items} - self._notified_od_ids - self._ignored_set
+
+            # 筛选剩余时间 <= 15 分钟的工单用于弹窗和声音提醒
+            now = datetime.now()
+            urgent_items = [i for i in od_items if (i['deadline'] - now).total_seconds() <= 900]
+            urgent_ids = {i['workorderNo'] for i in urgent_items}
+            new_urgent_ids = urgent_ids - self._notified_od_ids - self._ignored_set
+
             self._log(f"[dim]{now_str()}[/dim]")
             if od_count > 0:
                 self._log(f"[bold red]发现 {od_count} 个即将超时的临时性工单[/bold red]")
-                if not suppress_notifications:
+                if urgent_ids and not suppress_notifications:
                     self._play_sound()
-                if new_ids and not suppress_notifications:
-                    self._show_popup(f"你有 {len(new_ids)} 条临时性工单即将超时，请及时处理！")
-                    self._notified_od_ids.update(new_ids)
+                if new_urgent_ids and not suppress_notifications:
+                    self._show_popup(f"你有 {len(new_urgent_ids)} 条临时性工单即将超时，请及时处理！")
+                    self._notified_od_ids.update(new_urgent_ids)
             else:
                 self._log("[dim]暂无即将超时的临时性工单[/dim]")
             self._log("")
