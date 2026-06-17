@@ -105,3 +105,21 @@ def append_history(record: dict) -> None:
     history.append(record)
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+
+
+def cleanup_history(max_hours: int = 48) -> None:
+    """删除超过指定小时数的指派历史记录，并在文件上持久化"""
+    from datetime import datetime, timedelta
+    history = load_history()
+    cutoff = datetime.now() - timedelta(hours=max_hours)
+    kept = []
+    for h in history:
+        try:
+            t = datetime.strptime(h.get("acceptTime", ""), "%Y-%m-%d %H:%M:%S")
+            if t >= cutoff:
+                kept.append(h)
+        except (ValueError, TypeError):
+            continue
+    if len(kept) < len(history):
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(kept, f, ensure_ascii=False, indent=2)

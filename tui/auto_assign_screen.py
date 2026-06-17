@@ -10,7 +10,9 @@ from lib.config_manager import (
     load_assign_config,
     load_butler_config,
     load_history,
+    cleanup_history,
 )
+from tui.detail_screen import DetailScreen
 
 
 class ConfigPanel(Vertical):
@@ -76,12 +78,6 @@ class AutoAssignScreen(ModalScreen):
         background: $surface;
     }
 
-    #aa-config-mode {
-        layout: vertical;
-        height: 1fr;
-        display: none;
-    }
-
     #aa-config-split {
         layout: horizontal;
         height: 1fr;
@@ -93,6 +89,7 @@ class AutoAssignScreen(ModalScreen):
         border: none;
         border-right: solid $border;
         background: $surface;
+        display: none;
     }
 
     #aa-right-panel {
@@ -100,13 +97,7 @@ class AutoAssignScreen(ModalScreen):
         width: 1fr;
     }
 
-    #config-table,
-    #aa-table-config {
-        height: 1fr;
-    }
-
-    #aa-table-container {
-        layout: vertical;
+    #config-table {
         height: 1fr;
     }
 
@@ -119,6 +110,10 @@ class AutoAssignScreen(ModalScreen):
         text-style: bold;
         width: 100%;
         text-align: center;
+    }
+
+    #aa-config-header {
+        display: none;
     }
 
     #aa-table {
@@ -153,25 +148,17 @@ class AutoAssignScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        # 全屏模式：标题 + 表格
-        with Vertical(id="aa-table-container"):
-            yield Static("═ 自动指派记录 ═", id="aa-header")
-            yield DataTable(id="aa-table")
-        # 配置模式：统一标题 + 左右分屏表格（默认隐藏）
-        with Vertical(id="aa-config-mode"):
-            yield Static("═ 自动指派配置 ═", id="aa-config-header")
-            with Horizontal(id="aa-config-split"):
-                with Vertical(id="aa-config-panel"):
-                    yield ConfigPanel()
-                with Vertical(id="aa-right-panel"):
-                    yield DataTable(id="aa-table-config")
+        yield Static("═ 自动指派记录 ═", id="aa-header")
+        yield Static("═ 自动指派配置 ═", id="aa-config-header")
+        with Horizontal(id="aa-config-split"):
+            with Vertical(id="aa-config-panel"):
+                yield ConfigPanel()
+            with Vertical(id="aa-right-panel"):
+                yield DataTable(id="aa-table")
         yield Footer()
 
     def on_mount(self) -> None:
         self._setup_table(self.query_one("#aa-table", DataTable))
-        self._setup_table(self.query_one("#aa-table-config", DataTable))
-        # 初始隐藏配置模式容器
-        self.query_one("#aa-config-mode").display = False
         self._refresh()
 
     def _setup_table(self, table: DataTable) -> None:
@@ -183,11 +170,10 @@ class AutoAssignScreen(ModalScreen):
         table.cursor_type = "row"
 
     def _refresh(self) -> None:
-        """重新加载历史并刷新表格"""
+        """重新加载历史并刷新表格（自动清理超过 48 小时的记录）"""
+        cleanup_history(max_hours=48)
         self._history = load_history()
         self._rebuild_table(self.query_one("#aa-table", DataTable))
-        if self._config_mode:
-            self._rebuild_table(self.query_one("#aa-table-config", DataTable))
 
     def _rebuild_table(self, table: DataTable) -> None:
         table.clear()
@@ -218,21 +204,21 @@ class AutoAssignScreen(ModalScreen):
 
     def action_toggle_config(self) -> None:
         """切换配置模式（P 键）"""
-        table_container = self.query_one("#aa-table-container")
-        config_mode_container = self.query_one("#aa-config-mode")
+        aa_header = self.query_one("#aa-header", Static)
+        aa_config_header = self.query_one("#aa-config-header", Static)
+        config_panel = self.query_one("#aa-config-panel")
 
         if not self._config_mode:
-            table_container.display = False
-            config_mode_container.display = True
-            self._rebuild_table(self.query_one("#aa-table-config", DataTable))
+            aa_header.styles.display = "none"
+            aa_config_header.styles.display = "block"
+            config_panel.styles.display = "block"
             self._config_mode = True
-            # 设置统一标题为默认的接单人配置
-            self.query_one("#aa-config-header", Static).update("═ 接单人配置 ═")
+            aa_config_header.update("═ 接单人配置 ═")
         else:
-            table_container.display = True
-            config_mode_container.display = False
+            aa_header.styles.display = "block"
+            aa_config_header.styles.display = "none"
+            config_panel.styles.display = "none"
             self._config_mode = False
-            self._rebuild_table(self.query_one("#aa-table", DataTable))
 
     def action_toggle_config_tab(self) -> None:
         """Tab 切换配置面板内容（仅在配置模式下生效）"""
@@ -250,11 +236,7 @@ class AutoAssignScreen(ModalScreen):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Enter → 查看工单详情（复用 DetailScreen）"""
-        # 延迟导入避免循环引用
-        from tui.app import DetailScreen
-
-        table_id = event.control.id
-        if table_id not in ("aa-table", "aa-table-config"):
+        if event.control.id != "aa-table":
             return
 
         table = event.control
@@ -265,10 +247,10 @@ class AutoAssignScreen(ModalScreen):
             row = table.get_row_at(coord[0])
         except Exception:
             return
-        if not row or not row[0]:
+        if not row or not row[1]:
             return
 
-        wo_no = str(row[1]).strip() if table_id == "aa-table-config" else str(row[0]).strip()
+        wo_no = str(row[1]).strip()
         _placeholders = {"暂无数据", "", "等待首次查询..."}
         if wo_no in _placeholders or len(wo_no) < 5:
             return
