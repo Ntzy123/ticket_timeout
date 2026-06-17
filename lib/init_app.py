@@ -38,16 +38,107 @@ DEFAULT_CONFIG = {
 }
 
 
+# ── 默认部门接单人配置 ────────────────────────────────
+DEFAULT_ASSIGN_CONFIG_TOML = '''# =====================
+# 部门接单人配置
+# =====================
+["保洁"]
+enabled = true
+
+["保洁".assignees."11号地"]
+name = "张明金"
+mobile = "15685306313"
+userId = "2076797"
+
+["保洁".assignees."6号地"]
+name = "柏万碧"
+mobile = "18985106736"
+userId = "2078412"
+
+["绿化"]
+enabled = true
+
+["绿化".assignees."11号地"]
+name = "肖钰琴"
+mobile = "15186950839"
+userId = "2452500"
+
+["绿化".assignees."6号地"]
+name = "肖钰琴"
+mobile = "15186950839"
+userId = "2452500"
+
+["安防"]
+enabled = false
+
+["安防".assignees."11号地"]
+name = "倪昌飞"
+mobile = "15120193103"
+userId = "1698342"
+
+["安防".assignees."6号地"]
+name = "曾洪熙"
+mobile = "18585028903"
+userId = "1784302"
+'''
+
+# ── 默认管家配置 ──────────────────────────────────────
+DEFAULT_BUTLER_CONFIG_TOML = '''# =====================
+# 管家配置
+# =====================
+[[butlers]]
+name = "赵中婧"
+plot = "11号地"
+
+[[butlers]]
+name = "叶小玲"
+plot = "11号地"
+
+[[butlers]]
+name = "李如玉"
+plot = "11号地"
+
+[[butlers]]
+name = "杨维强"
+plot = "6号地"
+
+[[butlers]]
+name = "纪雪婷"
+plot = "6号地"
+
+[[butlers]]
+name = "王智勇"
+plot = "6号地"
+'''
+
+
 def init_app():
     """检测并创建运行所需的配置文件"""
-    config_path = os.path.join(BASE_DIR, ".config.json")
-    ignore_path = os.path.join(BASE_DIR, "ignored.toml")
+    config_dir = os.path.join(BASE_DIR, "config")
+    os.makedirs(config_dir, exist_ok=True)
+
+    config_path = os.path.join(config_dir, ".config.json")
+    ignore_path = os.path.join(config_dir, "ignored.toml")
+    assign_config_path = os.path.join(config_dir, "assign_config.toml")
+    butler_config_path = os.path.join(config_dir, "butler_config.toml")
+    history_path = os.path.join(config_dir, "auto_assign_history.json")
 
     if not os.path.exists(config_path):
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=4)
 
     if not os.path.exists(ignore_path):
-        # 创建空文件（仅含注释头）
         with open(ignore_path, "w", encoding="utf-8") as f:
             f.write("# 已忽略工单列表\n")
+
+    if not os.path.exists(assign_config_path):
+        with open(assign_config_path, "w", encoding="utf-8") as f:
+            f.write(DEFAULT_ASSIGN_CONFIG_TOML.lstrip("\n"))
+
+    if not os.path.exists(butler_config_path):
+        with open(butler_config_path, "w", encoding="utf-8") as f:
+            f.write(DEFAULT_BUTLER_CONFIG_TOML.lstrip("\n"))
+
+    if not os.path.exists(history_path):
+        with open(history_path, "w", encoding="utf-8") as f:
+            f.write("[]\n")

@@ -16,7 +16,7 @@ class TicketTimeoutPM:
     def query(self):
         with self.lock:
             self.content = None
-            self.tk.load(".config.json")
+            self.tk.load("config/.config.json")
             self.content = self.tk.query(time_range="today")
             
     def query_timeout(self):

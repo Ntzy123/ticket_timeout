@@ -15,7 +15,7 @@ class TicketTimeoutOD:
     # 循环查询
     def query(self):
         with self.lock:
-            self.tk.load(".config.json")
+            self.tk.load("config/.config.json")
             self.content = self.tk.query(status="['1', '1001', '1002', '1003', '1004', '1005', '1013', '1014', '4040']", fm_type="OD", ticket_type=[], time_range="today")
             
     def query_timeout(self):

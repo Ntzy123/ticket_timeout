@@ -7,6 +7,4 @@ res/
 *.log
 
 # Ticket Timeout
-.config.json
-ignore.txt
-ignore.toml
+config/*

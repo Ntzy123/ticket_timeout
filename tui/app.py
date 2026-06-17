@@ -24,6 +24,8 @@ from feature.ticket_timeout_pm import TicketTimeoutPM
 from feature.ticket_timeout_od import TicketTimeoutOD
 from lib.init_app import init_app, BASE_DIR
 from lib import api as lib_api
+from lib.auto_assigner import auto_assign_single
+from tui.auto_assign_screen import AutoAssignScreen
 
 logger = logging.getLogger("ticket_timeout")
 
@@ -115,10 +117,10 @@ def now_str() -> str:
 
 def load_api_config() -> dict:
     """从配置文件加载 API 请求头（过滤掉固定字段）"""
-    config_path = ".config.json"
+    config_path = os.path.join("config", ".config.json")
     if not os.path.isfile(config_path):
         base = os.path.dirname(os.path.abspath(sys.argv[0]))
-        config_path = os.path.join(base, ".config.json")
+        config_path = os.path.join(base, "config", ".config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     headers = cfg.get("headers", {})
@@ -129,7 +131,7 @@ def load_api_config() -> dict:
 
 
 # ── TOML 忽略工单管理 ───────────────────────────────────
-IGNORE_FILE = os.path.join(BASE_DIR, "ignored.toml")
+IGNORE_FILE = os.path.join(BASE_DIR, "config", "ignored.toml")
 
 
 def load_ignored() -> list[dict]:
@@ -759,7 +761,7 @@ class IgnoreListScreen(ModalScreen):
         with Vertical(id="ignore-container"):
             yield Static("═══ 已忽略工单 ═══", id="ignore-header")
             yield DataTable(id="ignore-table")
-            yield Static("[dim]Enter 取消忽略  Esc 返回[/dim]", id="ignore-footer")
+            yield Static("[dim](Enter) 取消忽略  (Esc) 返回[/dim]", id="ignore-footer")
 
     def on_mount(self) -> None:
         table = self.query_one("#ignore-table", DataTable)
@@ -895,6 +897,7 @@ class TicketMonitorApp(App):
         Binding("r", "force_refresh", "刷新", key_display="R"),
         Binding("i", "ignore_ticket", "忽略工单", key_display="I"),
         Binding("v", "manage_ignored", "忽略列表", key_display="V"),
+        Binding("o", "open_auto_assign", "自动指派", key_display="O"),
     ]
 
     def __init__(self, wait_time: int = 120, end_time: tuple = None, **kwargs):
@@ -919,6 +922,7 @@ class TicketMonitorApp(App):
         self._od_row_keys: list = []  # OD表格行key（用于原地更新剩余时间）
         self._pm_row_keys: list = []  # PM表格行key
         self._ignored_set: set[str] = set()  # 已忽略工单号集合
+        self._auto_assigned_od_ids: set[str] = set()  # 已自动指派的工单号集合
 
     # ── 日志推送（线程安全） ──────────────────────────────────
     def _log(self, msg: str):
@@ -1096,6 +1100,20 @@ class TicketMonitorApp(App):
                 if new_urgent_ids and not suppress_notifications:
                     self._show_popup(f"你有 {len(new_urgent_ids)} 条临时性工单即将超时，请及时处理！")
                     self._notified_od_ids.update(new_urgent_ids)
+                # 自动指派：对所有新出现的临时工单启动后台指派
+                if not suppress_notifications:
+                    new_ids = {i['workorderNo'] for i in od_items} - self._auto_assigned_od_ids - self._ignored_set
+                    for wo_no in new_ids:
+                        etl_code = next(
+                            (i.get('etlCode', '') for i in od_items if i['workorderNo'] == wo_no), ''
+                        )
+                        threading.Thread(
+                            target=auto_assign_single,
+                            args=(wo_no, etl_code,
+                                  self._api_project_id, self._api_source),
+                            daemon=True,
+                        ).start()
+                    self._auto_assigned_od_ids.update(new_ids)
             else:
                 self._log("[dim]暂无即将超时的临时性工单[/dim]")
             self._log("")
@@ -1437,6 +1455,17 @@ class TicketMonitorApp(App):
         self._ignored_set = load_ignored_set()
         self._log("[dim]已忽略工单列表已更新[/dim]")
         self._refresh_tables()
+
+    # ── 自动指派管理 ────────────────────────────────────────
+    def action_open_auto_assign(self) -> None:
+        """打开自动指派管理界面（O键）"""
+        self.push_screen(
+            AutoAssignScreen(
+                headers=self._api_headers,
+                project_id=self._api_project_id,
+                source=self._api_source,
+            ),
+        )
 
     # ── 工单详情 & 指派 ────────────────────────────────────
     def _on_detail_dismissed(self) -> None:
