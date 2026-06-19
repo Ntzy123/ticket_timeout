@@ -9,3 +9,4 @@ res/
 # Ticket Timeout
 .config.json
 ignore.txt
+config/*

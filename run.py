@@ -1,6 +1,6 @@
 # run.py
 
-import requests, threading, time, signal, sys, os, ctypes, pygame, typer, logging
+import requests, threading, time, signal, sys, os, subprocess, shutil, typer, logging
 from datetime import datetime, timezone, timedelta
 # from gui.main_window import MainWindow
 # from tkinter import messagebox
@@ -40,9 +40,7 @@ def get_resource_path(relative_path):
         return os.path.join(base_path, relative_path)
     return "./sound.mp3"
 
-sound_path = get_resource_path("res/sound.mp3")
-pygame.mixer.init()
-pygame.mixer.music.load(sound_path)
+
 
 # 获取当前时间
 def fetch_time():
@@ -95,11 +93,47 @@ def handle_signal(signum, frame):
     time.sleep(1)
     sys.exit(0)
 
-# 信息提示框
+# 使用系统可用播放器播放提示音
+def play_sound():
+    """使用系统可用音频播放器播放提示音"""
+    sound_file = get_resource_path("res/sound.mp3")
+    # 按优先级尝试不同的音频播放器
+    if shutil.which("termux-media-player"):
+        subprocess.Popen(["termux-media-player", "play", sound_file],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif shutil.which("mpv"):
+        subprocess.Popen(["mpv", "--no-terminal", sound_file],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif shutil.which("ffplay"):
+        subprocess.Popen(["ffplay", "-nodisp", "-autoexit", sound_file],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif shutil.which("paplay"):
+        subprocess.Popen(["paplay", sound_file],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif shutil.which("aplay"):
+        wav_path = sound_file.replace(".mp3", ".wav")
+        if os.path.exists(wav_path):
+            subprocess.Popen(["aplay", wav_path],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+# 跨平台弹窗通知
+def show_notification(title, message):
+    """跨平台系统通知"""
+    if shutil.which("termux-notification"):
+        subprocess.Popen(["termux-notification", "-t", title, "-c", message],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif shutil.which("notify-send"):
+        subprocess.Popen(["notify-send", title, message],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        # 回退：直接打印到控制台
+        print(f"\n=== {title} ===\n{message}\n")
+
+# 信息提示（播放提示音 + 弹窗通知）
 def msg_box(msg):
     def run_msgbox(msg):
-        pygame.mixer.music.play()
-        ctypes.windll.user32.MessageBoxW(0, msg, "提示", 0)
+        play_sound()
+        show_notification("提示", msg)
     thread = threading.Thread(target=run_msgbox, args=(msg,), daemon=True)
     thread.start()
 
