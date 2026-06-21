@@ -188,7 +188,8 @@ class TicketMonitorApp(App):
         self._od_row_keys: list = []
         self._pm_row_keys: list = []
         self._ignored_set: set[str] = set()
-        self._auto_assigned_od_ids: set[str] = set()
+        self._auto_assigned_od_ids: set[str] = set()      # 所有发起过指派的（用于去重）
+        self._auto_assign_success_ids: set[str] = set()   # 仅指派成功的（用于首页过滤）
 
     # ── 日志推送（线程安全） ──────────────────────────────────
     def _log(self, msg: str):
@@ -343,20 +344,44 @@ class TicketMonitorApp(App):
                 if new_urgent_ids and not suppress_notifications:
                     self._show_popup(f"你有 {len(new_urgent_ids)} 条临时性工单即将超时，请及时处理！")
                     self._notified_od_ids.update(new_urgent_ids)
-                # 自动指派：对所有新出现的临时工单启动后台指派
+                # 自动指派：对所有新出现的临时工单启动后台指派（仅首次查询到时触发）
                 if not suppress_notifications:
                     new_ids = {i['workorderNo'] for i in od_items} - self._auto_assigned_od_ids - self._ignored_set
-                    for wo_no in new_ids:
-                        etl_code = next(
-                            (i.get('etlCode', '') for i in od_items if i['workorderNo'] == wo_no), ''
-                        )
-                        threading.Thread(
-                            target=auto_assign_single,
-                            args=(wo_no, etl_code,
-                                  self._api_project_id, self._api_source),
-                            daemon=True,
-                        ).start()
-                    self._auto_assigned_od_ids.update(new_ids)
+                    if new_ids:
+                        self._log(f"[dim]{now_str()}[/dim]")
+                        self._log(f"[cyan]自动指派: 对 {len(new_ids)} 个临时工单发起指派...[/cyan]")
+                        success_count = [0]
+                        success_lock = threading.Lock()
+
+                        def on_result(success, info):
+                            if success:
+                                with success_lock:
+                                    success_count[0] += 1
+                                with self._lock:
+                                    self._auto_assign_success_ids.add(info["workorderNo"])
+
+                        threads = []
+                        for wo_no in new_ids:
+                            etl_code = next(
+                                (i.get('etlCode', '') for i in od_items if i['workorderNo'] == wo_no), ''
+                            )
+                            t = threading.Thread(
+                                target=auto_assign_single,
+                                args=(wo_no, etl_code,
+                                      self._api_project_id, self._api_source),
+                                kwargs={'callback': on_result},
+                                daemon=True,
+                            )
+                            t.start()
+                            threads.append(t)
+                        # 立即加入去重集合，确保下次查询不重复发起
+                        self._auto_assigned_od_ids.update(new_ids)
+                        for t in threads:
+                            t.join(timeout=20)
+                        if success_count[0] > 0:
+                            self._log(f"[green]自动指派完成: 成功 {success_count[0]} / {len(new_ids)} 个工单[/green]")
+                        else:
+                            self._log(f"[yellow]自动指派: 完成 0 / {len(new_ids)} 个工单（可能不满足指派条件）[/yellow]")
             else:
                 self._log("[dim]暂无即将超时的临时性工单[/dim]")
             self._log("")
@@ -415,7 +440,7 @@ class TicketMonitorApp(App):
             od_items = od_data.get("data", [])
             if od_count > 0:
                 for item in od_items:
-                    if item["workorderNo"] in self._ignored_set:
+                    if item["workorderNo"] in self._ignored_set or item["workorderNo"] in self._auto_assign_success_ids:
                         continue
                     remaining_text = format_remaining(item["deadline"])
                     remaining_style = get_remaining_style(item["deadline"], "OD")
@@ -426,6 +451,8 @@ class TicketMonitorApp(App):
                         Text(remaining_text, style=remaining_style),
                     )
                     self._od_row_keys.append(row)
+                if not self._od_row_keys:
+                    od_table.add_row("", "暂无即将超时的临时性工单", "", "")
             else:
                 od_table.add_row("", "暂无即将超时的临时性工单", "", "")
         else:
@@ -469,7 +496,9 @@ class TicketMonitorApp(App):
                 pm_data = self._latest_pm_data
             od_table = self.query_one("#od-table")
             if od_data and int(od_data.get("num", 0)) > 0:
-                items = [i for i in od_data.get("data", []) if i["workorderNo"] not in self._ignored_set]
+                items = [i for i in od_data.get("data", [])
+                         if i["workorderNo"] not in self._ignored_set
+                         and i["workorderNo"] not in self._auto_assign_success_ids]
                 for i, item in enumerate(items):
                     if i < len(self._od_row_keys):
                         remaining_text = format_remaining(item["deadline"])
@@ -498,7 +527,9 @@ class TicketMonitorApp(App):
             od_data = self._latest_od_data
             pm_data = self._latest_pm_data
         if od_data:
-            od_items = [i for i in od_data.get("data", []) if i["workorderNo"] not in self._ignored_set]
+            od_items = [i for i in od_data.get("data", [])
+                        if i["workorderNo"] not in self._ignored_set
+                        and i["workorderNo"] not in self._auto_assign_success_ids]
         else:
             od_items = []
         od_count = len(od_items) if od_data else -1

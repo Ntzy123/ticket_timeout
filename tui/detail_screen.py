@@ -462,7 +462,8 @@ class DetailScreen(ModalScreen):
                 header.update(f"确认指派给 {name}（{mobile}）？ Enter/Y 确认  Esc 取消")
                 self._log(f"[yellow]确认将该工单指派给 {name}（{mobile}）？[/yellow]")
                 self.notify(f"确认指派给 {name}（{mobile}）？", severity="warning")
-                # 焦点留在可见的 header 区域，on_key 全局捕获确认/取消按键
+                # 焦点切到隐藏的 log 上，防止 DataTable 滚动干扰
+                self.set_focus(self.query_one("#detail-left-log"))
             else:
                 self._log(f"[yellow]未找到人员完整信息，请重新选择[/yellow]")
         except Exception as e:

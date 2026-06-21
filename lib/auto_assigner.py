@@ -168,7 +168,7 @@ def auto_assign_single(
         record = {
             "workorderNo": workorder_no,
             "workorderDescription": detail.get("workorderDescription") or detail.get("workorderTitle", ""),
-            "workorderStatusName": detail.get("workorderStatusName", ""),
+            "workorderStatusName": "处理中",
             "department": department,
             "plot": plot,
             "assigneeName": assignee_name,
