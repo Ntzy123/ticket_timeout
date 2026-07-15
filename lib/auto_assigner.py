@@ -134,11 +134,11 @@ def auto_assign_single(
         logger.info(f"[自动指派] 工单 {workorder_no} 创建人 '{create_name}' 未配置地块，跳过")
         return
 
-    # 4. 检查部门是否启用
+    # 4. 检查部门配置
     assign_config = load_assign_config()
     dept_config = assign_config.get(department)
-    if not dept_config or not dept_config.get("enabled"):
-        logger.info(f"[自动指派] 部门 '{department}' 未启用自动指派，跳过工单 {workorder_no}")
+    if not dept_config:
+        logger.info(f"[自动指派] 部门 '{department}' 无配置，跳过工单 {workorder_no}")
         return
 
     # 5. 获取该部门+地块的接单人（唯一指定）
@@ -146,6 +146,11 @@ def auto_assign_single(
     assignee = assignees.get(plot)
     if not assignee:
         logger.info(f"[自动指派] 部门 '{department}' 地块 '{plot}' 未配置接单人，跳过工单 {workorder_no}")
+        return
+
+    # 5.1 检查该岗位是否启用
+    if not assignee.get("enabled", True):
+        logger.info(f"[自动指派] {department}·{plot} 未启用，跳过工单 {workorder_no}")
         return
 
     assignee_name = assignee["name"]

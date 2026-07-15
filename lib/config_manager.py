@@ -44,19 +44,32 @@ def load_assign_config() -> dict[str, Any]:
     result: dict[str, Any] = {}
     departments = data
     for dept_name, dept_cfg in departments.items():
-        enabled = dept_cfg.get("enabled", False)
         assignees_raw = dept_cfg.get("assignees", {})
-        assignees: dict[str, dict[str, str]] = {}
+        assignees: dict[str, dict[str, Any]] = {}
         for plot, person in assignees_raw.items():
             if isinstance(person, dict) and person.get("name"):
-                assignees[plot] = {
+                plot_enabled = bool(person.get("enabled", True))
+                entry = {
+                    "enabled": plot_enabled,
                     "name": person["name"],
                     "mobile": person.get("mobile", ""),
                     "userId": person.get("userId", ""),
                 }
+                # 可选 backup 备用人员列表
+                raw_backups = person.get("backups")
+                if raw_backups and isinstance(raw_backups, list):
+                    entry["backups"] = [b for b in raw_backups
+                                        if isinstance(b, dict) and b.get("name")]
+                assignees[plot] = entry
+        # 部门级备用人员（不绑定具体地块，各岗位可共用）
+        dept_backups_raw = dept_cfg.get("backups", [])
+        dept_backups = []
+        if isinstance(dept_backups_raw, list):
+            dept_backups = [b for b in dept_backups_raw
+                            if isinstance(b, dict) and b.get("name")]
         result[dept_name] = {
-            "enabled": enabled,
             "assignees": assignees,
+            "backups": dept_backups,
         }
     return result
 
@@ -95,7 +108,7 @@ def load_history() -> list[dict]:
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
         return []
 
 
@@ -123,3 +136,38 @@ def cleanup_history(max_hours: int = 48) -> None:
     if len(kept) < len(history):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(kept, f, ensure_ascii=False, indent=2)
+
+
+# ── 部门配置写入 ────────────────────────────────────────────
+def _escape_toml_basic(s: str) -> str:
+    """转义 TOML 基本字符串（双引号内）的特殊字符"""
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def write_assign_config(config: dict[str, Any]) -> None:
+    """将部门配置写回 assign_config.toml（保持原始顺序）"""
+    lines = ["# =====================\n", "# 部门接单人配置\n", "# =====================\n"]
+    for dept_name in config:
+        dept_cfg = config[dept_name]
+        esc = _escape_toml_basic
+        lines.append(f'\n["{esc(dept_name)}"]\n')
+        # 部门级备份人员
+        dept_backups = dept_cfg.get("backups", [])
+        if dept_backups:
+            parts = []
+            for b in dept_backups:
+                bn = esc(b.get("name", ""))
+                bm = esc(b.get("mobile", ""))
+                bu = esc(b.get("userId", ""))
+                parts.append(f'  {{ name = "{bn}", mobile = "{bm}", userId = "{bu}" }}')
+            lines.append("backups = [\n" + ",\n".join(parts) + "\n]\n")
+        assignees = dept_cfg.get("assignees", {})
+        for plot in assignees:
+            person = assignees[plot]
+            lines.append(f'\n["{esc(dept_name)}".assignees."{esc(plot)}"]\n')
+            lines.append(f'enabled = {"true" if person.get("enabled", True) else "false"}\n')
+            lines.append(f'name = "{esc(person["name"])}"\n')
+            lines.append(f'mobile = "{esc(person.get("mobile", ""))}"\n')
+            lines.append(f'userId = "{esc(person.get("userId", ""))}"\n')
+    with open(ASSIGN_CONFIG_FILE, "w", encoding="utf-8") as f:
+        f.writelines(lines)

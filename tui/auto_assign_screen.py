@@ -8,11 +8,13 @@ from textual.binding import Binding
 
 from lib.config_manager import (
     load_assign_config,
+    write_assign_config,
     load_butler_config,
     load_history,
     cleanup_history,
 )
 from tui.detail_screen import DetailScreen
+from tui.person_edit_screen import PersonEditScreen
 
 
 class ConfigPanel(Vertical):
@@ -29,23 +31,35 @@ class ConfigPanel(Vertical):
         self._render_assignee()
 
     def _render_assignee(self) -> None:
-        """渲染接单人配置表格"""
+        """第一层：显示部门·地块·接单人（每岗一行，共 6 行）"""
         table = self.query_one("#config-table", DataTable)
         table.clear(columns=True)
         table.add_column("部门", key="dept", width=4)
         table.add_column("地块", key="plot", width=6)
         table.add_column("接单人", key="name", width=8)
-        table.add_column("电话", key="mobile", width=11)
-        table.add_column("状态", key="status", width=7)
+        table.add_column("可选", key="avail", width=6)
+        table.add_column("状态", key="status", width=8)
         table.cursor_type = "row"
 
         config = load_assign_config()
         for dept_name, dept_cfg in config.items():
-            enabled = dept_cfg.get("enabled", False)
-            status_text = "● 启用" if enabled else "○ 停用"
             assignees = dept_cfg.get("assignees", {})
+            # 计算该部门总人数（去重，含部门级备份）
+            all_people: set[str] = set()
+            for _plot, person in assignees.items():
+                all_people.add(person["name"])
+            for b in dept_cfg.get("backups", []):
+                all_people.add(b["name"])
+            avail_str = f"{len(all_people)} 人"
             for plot, person in assignees.items():
-                table.add_row(dept_name, plot, person['name'], person['mobile'], status_text)
+                is_on = person.get("enabled", True)
+                status_text = "● 启用" if is_on else "○ 停用"
+                table.add_row(
+                    dept_name, plot,
+                    person['name'],
+                    avail_str,
+                    status_text,
+                )
         self._showing_assignee = True
 
     def _render_butler(self) -> None:
@@ -133,6 +147,7 @@ class AutoAssignScreen(ModalScreen):
         Binding("p", "toggle_config", "配置", key_display="P"),
         Binding("r", "refresh", "刷新", key_display="R"),
         Binding("tab", "toggle_config_tab", "切换管家配置"),
+        Binding("space", "toggle_enabled", "启停", key_display="Space"),
         Binding("q", "close", "返回", key_display="Q"),
         Binding("escape", "close", "返回"),
     ]
@@ -234,9 +249,77 @@ class AutoAssignScreen(ModalScreen):
         except Exception:
             pass
 
+    def action_toggle_enabled(self) -> None:
+        """Space 键：切换选中岗位的启用/停用状态"""
+        if not self._config_mode:
+            return
+        try:
+            table = self.query_one("#config-table", DataTable)
+            coord = table.cursor_coordinate
+            if coord is None:
+                return
+            row = table.get_row_at(coord[0])
+            if not row or len(row) < 2:
+                return
+            dept = str(row[0]).strip()
+            plot = str(row[1]).strip()
+            config = load_assign_config()
+            dept_cfg = config.get(dept)
+            if not dept_cfg:
+                return
+            assignees = dept_cfg.setdefault("assignees", {})
+            person = assignees.get(plot)
+            if not person:
+                return
+            current = person.get("enabled", True)
+            person["enabled"] = not current
+            write_assign_config(config)
+            self._reload_config()
+            status = "启用" if person["enabled"] else "停用"
+            self.notify(f"{dept}·{plot} 已{status}", severity="information")
+        except Exception as e:
+            self.notify(f"切换失败: {e}", severity="error")
+
+    def on_key(self, event) -> None:
+        """在配置模式下，DataTable 的上/下方向键循环滚动"""
+        if not self._config_mode:
+            return
+        focused = self.focused
+        if not isinstance(focused, DataTable) or focused.id != "config-table":
+            return
+        if event.key not in ("up", "down"):
+            return
+        coord = focused.cursor_coordinate
+        if coord is None or focused.row_count <= 1:
+            return
+        last_row = focused.row_count - 1
+        if event.key == "up" and coord[0] == 0:
+            event.prevent_default()
+            focused.move_cursor(row=last_row, column=0)
+        elif event.key == "down" and coord[0] == last_row:
+            event.prevent_default()
+            focused.move_cursor(row=0, column=0)
+
+    def _open_person_edit(self, row: tuple) -> None:
+        """打开第二层：该岗位的人员选择与管理界面"""
+        dept = str(row[0]).strip()
+        plot = str(row[1]).strip()
+        config = load_assign_config()
+        self.app.push_screen(
+            PersonEditScreen(config, dept, plot),
+            callback=lambda _: self._reload_config(),
+        )
+
+    def _reload_config(self) -> None:
+        """关闭 PersonEditScreen 后重新加载配置并刷新"""
+        panel = self.query_one(ConfigPanel)
+        if panel._showing_assignee:
+            panel._render_assignee()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Enter → 查看工单详情（复用 DetailScreen）"""
-        if event.control.id != "aa-table":
+        """Enter → 查看工单详情，或打开人员管理"""
+        table_id = event.control.id
+        if table_id not in ("aa-table", "config-table"):
             return
 
         table = event.control
@@ -247,9 +330,17 @@ class AutoAssignScreen(ModalScreen):
             row = table.get_row_at(coord[0])
         except Exception:
             return
-        if not row or not row[1]:
+        if not row:
             return
 
+        # ── 配置模式：打开岗位人员管理 ─────────────
+        if table_id == "config-table":
+            self._open_person_edit(row)
+            return
+
+        # ── 历史模式：查看工单详情 ─────────────────
+        if not row[1]:
+            return
         wo_no = str(row[1]).strip()
         _placeholders = {"暂无数据", "", "等待首次查询..."}
         if wo_no in _placeholders or len(wo_no) < 5:
@@ -259,7 +350,7 @@ class AutoAssignScreen(ModalScreen):
         matched = next((h for h in self._history if h.get("workorderNo") == wo_no), None)
         etl_code = matched.get("etlCode", "") if matched else ""
 
-        self.push_screen(
+        self.app.push_screen(
             DetailScreen(
                 workorder_no=wo_no,
                 headers=self._api_headers,

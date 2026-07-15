@@ -43,43 +43,50 @@ DEFAULT_ASSIGN_CONFIG_TOML = '''# =====================
 # 部门接单人配置
 # =====================
 ["保洁"]
-enabled = true
 
 ["保洁".assignees."11号地"]
+enabled = true
 name = "张明金"
 mobile = "15685306313"
 userId = "2076797"
 
 ["保洁".assignees."6号地"]
+enabled = true
 name = "柏万碧"
 mobile = "18985106736"
 userId = "2078412"
 
 ["绿化"]
-enabled = true
 
 ["绿化".assignees."11号地"]
+enabled = true
 name = "肖钰琴"
 mobile = "15186950839"
 userId = "2452500"
 
 ["绿化".assignees."6号地"]
+enabled = true
 name = "肖钰琴"
 mobile = "15186950839"
 userId = "2452500"
 
 ["安防"]
-enabled = false
+backups = [
+  { name = "倪昌飞", mobile = "15120193103", userId = "1698342" },
+  { name = "曾洪熙", mobile = "18585028903", userId = "1784302" },
+]
 
 ["安防".assignees."11号地"]
-name = "倪昌飞"
-mobile = "15120193103"
-userId = "1698342"
+enabled = false
+name = "高海超"
+mobile = "17623826232"
+userId = "2390410"
 
 ["安防".assignees."6号地"]
-name = "曾洪熙"
-mobile = "18585028903"
-userId = "1784302"
+enabled = false
+name = "廖清山"
+mobile = "18785152330"
+userId = "2482763"
 '''
 
 # ── 默认管家配置 ──────────────────────────────────────
@@ -99,7 +106,7 @@ name = "李如玉"
 plot = "11号地"
 
 [[butlers]]
-name = "杨维强"
+name = "余思奥"
 plot = "6号地"
 
 [[butlers]]
