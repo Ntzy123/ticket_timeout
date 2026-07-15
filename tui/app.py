@@ -229,7 +229,7 @@ class TicketMonitorApp(App):
         try:
             self._log(f"[dim]{now_str()}[/dim]")
             self._log("[cyan]正在进行认证...[/cyan]")
-            url = "http://kyrian.asia/api/get_auth"
+            url = "https://kyrian.asia/api/get_auth"
             if requests.get(url, timeout=5).text != "OK":
                 self._log("[bold red]认证失败，程序退出[/bold red]")
                 self.exit()

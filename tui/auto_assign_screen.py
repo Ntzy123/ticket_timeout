@@ -147,7 +147,9 @@ class AutoAssignScreen(ModalScreen):
         Binding("p", "toggle_config", "配置", key_display="P"),
         Binding("r", "refresh", "刷新", key_display="R"),
         Binding("tab", "toggle_config_tab", "切换管家配置"),
-        Binding("space", "toggle_enabled", "启停", key_display="Space"),
+        Binding("space", "toggle_enabled", "启用/停用", key_display="Space"),
+        Binding("up", "nav_up", "上移", show=False),
+        Binding("down", "nav_down", "下移", show=False),
         Binding("q", "close", "返回", key_display="Q"),
         Binding("escape", "close", "返回"),
     ]
@@ -274,31 +276,42 @@ class AutoAssignScreen(ModalScreen):
             current = person.get("enabled", True)
             person["enabled"] = not current
             write_assign_config(config)
-            self._reload_config()
+            # 记住当前选中的行号，重绘后恢复
+            saved_row = coord[0]
+            panel = self.query_one(ConfigPanel)
+            panel._render_assignee()
+            # 恢复光标
+            new_table = self.query_one("#config-table", DataTable)
+            new_coord = min(saved_row, new_table.row_count - 1)
+            if new_coord >= 0:
+                new_table.move_cursor(row=new_coord, column=0)
             status = "启用" if person["enabled"] else "停用"
             self.notify(f"{dept}·{plot} 已{status}", severity="information")
         except Exception as e:
             self.notify(f"切换失败: {e}", severity="error")
 
-    def on_key(self, event) -> None:
-        """在配置模式下，DataTable 的上/下方向键循环滚动"""
-        if not self._config_mode:
+    # ── 循环滚动（Binding 拦截 pre-handler，避免与 DataTable 冲突）───
+    def _move_cursor_in_table(self, direction: str) -> None:
+        """通用的光标移动：配置模式循环滚动，历史模式正常移动"""
+        table = self.focused
+        if not isinstance(table, DataTable):
             return
-        focused = self.focused
-        if not isinstance(focused, DataTable) or focused.id != "config-table":
+        coord = table.cursor_coordinate
+        if coord is None or table.row_count <= 1:
             return
-        if event.key not in ("up", "down"):
-            return
-        coord = focused.cursor_coordinate
-        if coord is None or focused.row_count <= 1:
-            return
-        last_row = focused.row_count - 1
-        if event.key == "up" and coord[0] == 0:
-            event.prevent_default()
-            focused.move_cursor(row=last_row, column=0)
-        elif event.key == "down" and coord[0] == last_row:
-            event.prevent_default()
-            focused.move_cursor(row=0, column=0)
+        r, c = coord[0], coord[0]
+
+        if direction == "up":
+            target = table.row_count - 1 if r == 0 else r - 1
+        else:
+            target = 0 if r == table.row_count - 1 else r + 1
+        table.move_cursor(row=target, column=0)
+
+    def action_nav_up(self) -> None:
+        self._move_cursor_in_table("up")
+
+    def action_nav_down(self) -> None:
+        self._move_cursor_in_table("down")
 
     def _open_person_edit(self, row: tuple) -> None:
         """打开第二层：该岗位的人员选择与管理界面"""
