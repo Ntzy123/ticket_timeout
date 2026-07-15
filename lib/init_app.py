@@ -57,6 +57,9 @@ mobile = "18985106736"
 userId = "2078412"
 
 ["绿化"]
+backups = [
+  { name = "赵扬霞", mobile = "18286197279", userId = "1963378" },
+]
 
 ["绿化".assignees."11号地"]
 enabled = true

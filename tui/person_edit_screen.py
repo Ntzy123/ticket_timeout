@@ -70,6 +70,8 @@ class PersonEditScreen(ModalScreen):
         Binding("c", "copy_person", "复制", key_display="C"),
         Binding("e", "edit_person", "修改", key_display="E"),
         Binding("d", "delete_person", "删除", key_display="D"),
+        Binding("up", "nav_up", "上移", show=False),
+        Binding("down", "nav_down", "下移", show=False),
         Binding("q", "close", "返回", key_display="Q"),
         Binding("escape", "close", "返回"),
     ]
@@ -346,7 +348,7 @@ class PersonEditScreen(ModalScreen):
         self._rebuild_table()
         self.notify(f"已删除 {name}", severity="information")
 
-    # ── 键盘事件（表单 + 循环滚动） ──────────────
+    # ── 键盘事件（表单输入处理） ──────────────────
     def on_key(self, event) -> None:
         form = self.query_one("#pe-form")
         if form.styles.display == "block":
@@ -356,23 +358,27 @@ class PersonEditScreen(ModalScreen):
             elif event.key in ("enter",):
                 event.stop()
                 self._save_form()
-            return
 
-        # 表格循环滚动
+    # ── 循环滚动（Binding 拦截） ─────────────────
+    def _wrap_cursor(self, direction: str) -> None:
         focused = self.focused
-        if isinstance(focused, DataTable) and focused.id == "pe-table":
-            if event.key not in ("up", "down"):
-                return
-            coord = focused.cursor_coordinate
-            if coord is None or focused.row_count <= 1:
-                return
-            last = focused.row_count - 1
-            if event.key == "up" and coord[0] == 0:
-                event.prevent_default()
-                focused.move_cursor(row=last, column=0)
-            elif event.key == "down" and coord[0] == last:
-                event.prevent_default()
-                focused.move_cursor(row=0, column=0)
+        if not isinstance(focused, DataTable) or focused.id != "pe-table":
+            return
+        coord = focused.cursor_coordinate
+        if coord is None or focused.row_count <= 1:
+            return
+        r = coord[0]
+        if direction == "up":
+            target = focused.row_count - 1 if r == 0 else r - 1
+        else:
+            target = 0 if r == focused.row_count - 1 else r + 1
+        focused.move_cursor(row=target, column=0)
+
+    def action_nav_up(self) -> None:
+        self._wrap_cursor("up")
+
+    def action_nav_down(self) -> None:
+        self._wrap_cursor("down")
 
     # ── Enter 替换 ───────────────────────────────
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
