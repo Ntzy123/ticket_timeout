@@ -188,6 +188,7 @@ class PersonEditScreen(ModalScreen):
                 "name": person["name"],
                 "mobile": person.get("mobile", ""),
                 "userId": person.get("userId", ""),
+                "enabled": current.get("enabled", True),
                 "backups": current.get("backups", []),
             }
             # 旧人加入备份（如果不在备份中）

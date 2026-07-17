@@ -169,5 +169,15 @@ def write_assign_config(config: dict[str, Any]) -> None:
             lines.append(f'name = "{esc(person["name"])}"\n')
             lines.append(f'mobile = "{esc(person.get("mobile", ""))}"\n')
             lines.append(f'userId = "{esc(person.get("userId", ""))}"\n')
+            # 每岗位单独备份人员
+            plot_backups = person.get("backups", [])
+            if plot_backups:
+                parts = []
+                for b in plot_backups:
+                    bn = esc(b.get("name", ""))
+                    bm = esc(b.get("mobile", ""))
+                    bu = esc(b.get("userId", ""))
+                    parts.append(f'  {{ name = "{bn}", mobile = "{bm}", userId = "{bu}" }}')
+                lines.append("backups = [\n" + ",\n".join(parts) + "\n]\n")
     with open(ASSIGN_CONFIG_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)

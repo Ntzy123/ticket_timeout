@@ -44,10 +44,12 @@ class ConfigPanel(Vertical):
         config = load_assign_config()
         for dept_name, dept_cfg in config.items():
             assignees = dept_cfg.get("assignees", {})
-            # 计算该部门总人数（去重，含部门级备份）
+            # 计算该部门总人数（去重，含部门级备份 + 各岗位级备份）
             all_people: set[str] = set()
             for _plot, person in assignees.items():
                 all_people.add(person["name"])
+                for b in person.get("backups", []):
+                    all_people.add(b["name"])
             for b in dept_cfg.get("backups", []):
                 all_people.add(b["name"])
             avail_str = f"{len(all_people)} 人"

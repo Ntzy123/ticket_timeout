@@ -77,6 +77,7 @@ userId = "2452500"
 backups = [
   { name = "倪昌飞", mobile = "15120193103", userId = "1698342" },
   { name = "曾洪熙", mobile = "18585028903", userId = "1784302" },
+  { name = "唐艺纹", mobile = "15902604767", userId = "2596928" },
 ]
 
 ["安防".assignees."11号地"]
