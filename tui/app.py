@@ -591,20 +591,26 @@ class TicketMonitorApp(App):
         while True:
             try:
                 now = fetch_internet_time()
-                if now is not None:
-                    now_shanghai = now.astimezone(tz_shanghai)
-                    remaining = _calc_remaining(now_shanghai)
-                    if remaining <= 120:
-                        self._log(
-                            f"[yellow]距离关闭时间 {end_hour:02d}:{end_minute:02d} "
-                            f"仅剩 {int(remaining)} 秒，启动本地倒计时精确关闭...[/yellow]"
-                        )
-                        threading.Thread(
-                            target=self._local_countdown_exit,
-                            args=(remaining, end_hour, end_minute),
-                            daemon=True,
-                        ).start()
-                        return
+                if now is None:
+                    # 互联网时间获取失败，回退到本地系统时间
+                    self._log(
+                        "[yellow]无法获取互联网时间，使用本地系统时间进行自动关闭判断[/yellow]"
+                    )
+                    now = datetime.now().astimezone(tz_shanghai)
+                else:
+                    now = now.astimezone(tz_shanghai)
+                remaining = _calc_remaining(now)
+                if remaining <= 120:
+                    self._log(
+                        f"[yellow]距离关闭时间 {end_hour:02d}:{end_minute:02d} "
+                        f"仅剩 {int(remaining)} 秒，启动本地倒计时精确关闭...[/yellow]"
+                    )
+                    threading.Thread(
+                        target=self._local_countdown_exit,
+                        args=(remaining, end_hour, end_minute),
+                        daemon=True,
+                    ).start()
+                    return
                 time.sleep(60)
             except Exception:
                 time.sleep(60)
