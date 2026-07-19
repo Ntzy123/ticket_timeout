@@ -51,20 +51,24 @@ def get_resource_path(relative_path: str) -> str:
 
 
 def fetch_internet_time():
-    """从互联网时间API获取当前时间，失败则返回None"""
+    """从互联网时间API获取当前东八区时间，失败则返回None"""
+    tz_shanghai = timezone(timedelta(hours=8))
     apis = [
-        "http://worldtimeapi.org/api/timezone/Asia/Shanghai",
         "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Shanghai",
+        "http://worldtimeapi.org/api/timezone/Asia/Shanghai",
     ]
     for api_url in apis:
         try:
             resp = requests.get(api_url, timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
-                if "datetime" in data:
-                    return datetime.fromisoformat(data["datetime"].replace("Z", "+00:00"))
-                if "dateTime" in data:
-                    return datetime.fromisoformat(data["dateTime"])
+                dt_str = data.get("datetime") or data.get("dateTime")
+                if dt_str:
+                    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                    # 确保 datetime 带有时区信息
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=tz_shanghai)
+                    return dt
         except Exception:
             continue
     return None
@@ -582,43 +586,78 @@ class TicketMonitorApp(App):
         end_hour, end_minute = self.end_time
         tz_shanghai = timezone(timedelta(hours=8))
 
-        def _calc_remaining(now_shanghai):
-            target = now_shanghai.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
-            if target <= now_shanghai:
-                target += timedelta(days=1)
-            return (target - now_shanghai).total_seconds()
+        def _should_trigger(now_shanghai):
+            """判断是否应该触发关闭"""
+            target = now_shanghai.replace(
+                hour=end_hour, minute=end_minute, second=0, microsecond=0
+            )
+            diff = (target - now_shanghai).total_seconds()
+            if diff > 0 and diff <= 120:
+                return diff, True
+            if -300 <= diff <= 0:
+                return 0, True
+            return None, False
 
+        # 第一次检查：直接使用本地时间（避免网络延迟）
+        try:
+            local_now = datetime.now().astimezone(tz_shanghai)
+            trigger_time, should = _should_trigger(local_now)
+            if should:
+                self._log(
+                    f"[yellow]即将关闭，倒计时 {int(max(0, trigger_time))}s[/yellow]"
+                )
+                threading.Thread(
+                    target=self._local_countdown_exit,
+                    args=(max(0, trigger_time), end_hour, end_minute),
+                    daemon=True,
+                ).start()
+                return
+        except Exception as e:
+            logger.exception(f"初始时间检查异常: {e}")
+
+        # 后续巡检
+        check_count = 0
         while True:
             try:
+                check_count += 1
                 now = fetch_internet_time()
                 if now is None:
-                    # 互联网时间获取失败，回退到本地系统时间
-                    self._log(
-                        "[yellow]无法获取互联网时间，使用本地系统时间进行自动关闭判断[/yellow]"
-                    )
                     now = datetime.now().astimezone(tz_shanghai)
                 else:
                     now = now.astimezone(tz_shanghai)
-                remaining = _calc_remaining(now)
-                if remaining <= 120:
+
+                trigger_time, should = _should_trigger(now)
+                if should:
                     self._log(
-                        f"[yellow]距离关闭时间 {end_hour:02d}:{end_minute:02d} "
-                        f"仅剩 {int(remaining)} 秒，启动本地倒计时精确关闭...[/yellow]"
+                        f"[yellow]即将关闭，倒计时 {int(max(0, trigger_time))}s[/yellow]"
                     )
                     threading.Thread(
                         target=self._local_countdown_exit,
-                        args=(remaining, end_hour, end_minute),
+                        args=(max(0, trigger_time), end_hour, end_minute),
                         daemon=True,
                     ).start()
                     return
-                time.sleep(60)
-            except Exception:
-                time.sleep(60)
+                time.sleep(10)
+            except Exception as e:
+                logger.exception(f"巡检异常: {e}")
+                time.sleep(10)
 
     def _local_countdown_exit(self, seconds: float, end_hour: int, end_minute: int):
         time.sleep(max(0, seconds))
-        self._log(f"[bold red]已到达设定结束时间 {end_hour:02d}:{end_minute:02d}，程序退出中...[/bold red]")
-        self.call_from_thread(self.exit)
+        self._log(f"[bold red]已到达设定时间 {end_hour:02d}:{end_minute:02d}，程序退出[/bold red]")
+        try:
+            self.call_from_thread(self.exit)
+        except Exception as e:
+            logger.exception(f"Textual 退出异常: {e}")
+            import sys as _sys
+            _sys.exit(0)
+        # 兜底：5秒后强制退出
+        import sys as _sys
+        def _force_exit():
+            time.sleep(5)
+            if self.is_running:
+                _sys.exit(0)
+        threading.Thread(target=_force_exit, daemon=True).start()
 
     # ── 表格游标辅助 ────────────────────────────────────────
     def _get_selected_workorder_no(self, table: DataTable) -> str | None:
