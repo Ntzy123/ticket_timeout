@@ -598,7 +598,7 @@ class TicketMonitorApp(App):
                 return 0, True
             return None, False
 
-        # 第一次检查：直接使用本地时间（避免网络延迟）
+        # 第一次检查
         try:
             local_now = datetime.now().astimezone(tz_shanghai)
             trigger_time, should = _should_trigger(local_now)
@@ -615,17 +615,10 @@ class TicketMonitorApp(App):
         except Exception as e:
             logger.exception(f"初始时间检查异常: {e}")
 
-        # 后续巡检
-        check_count = 0
+        # 后续巡检（全程使用本地时间）
         while True:
             try:
-                check_count += 1
-                now = fetch_internet_time()
-                if now is None:
-                    now = datetime.now().astimezone(tz_shanghai)
-                else:
-                    now = now.astimezone(tz_shanghai)
-
+                now = datetime.now().astimezone(tz_shanghai)
                 trigger_time, should = _should_trigger(now)
                 if should:
                     self._log(
