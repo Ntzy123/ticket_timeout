@@ -84,13 +84,13 @@ backups = [
 ]
 
 ["安防".assignees."11号地"]
-enabled = true
+enabled = false
 name = "唐艺纹"
 mobile = "15902604767"
 userId = "2596928"
 
 ["安防".assignees."6号地"]
-enabled = true
+enabled = false
 name = "廖清山"
 mobile = "18785152330"
 userId = "2482763"

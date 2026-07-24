@@ -55,11 +55,6 @@ def load_assign_config() -> dict[str, Any]:
                     "mobile": person.get("mobile", ""),
                     "userId": person.get("userId", ""),
                 }
-                # 可选 backup 备用人员列表
-                raw_backups = person.get("backups")
-                if raw_backups and isinstance(raw_backups, list):
-                    entry["backups"] = [b for b in raw_backups
-                                        if isinstance(b, dict) and b.get("name")]
                 assignees[plot] = entry
         # 部门级备用人员（不绑定具体地块，各岗位可共用）
         dept_backups_raw = dept_cfg.get("backups", [])
@@ -169,15 +164,5 @@ def write_assign_config(config: dict[str, Any]) -> None:
             lines.append(f'name = "{esc(person["name"])}"\n')
             lines.append(f'mobile = "{esc(person.get("mobile", ""))}"\n')
             lines.append(f'userId = "{esc(person.get("userId", ""))}"\n')
-            # 每岗位单独备份人员
-            plot_backups = person.get("backups", [])
-            if plot_backups:
-                parts = []
-                for b in plot_backups:
-                    bn = esc(b.get("name", ""))
-                    bm = esc(b.get("mobile", ""))
-                    bu = esc(b.get("userId", ""))
-                    parts.append(f'  {{ name = "{bn}", mobile = "{bm}", userId = "{bu}" }}')
-                lines.append("backups = [\n" + ",\n".join(parts) + "\n]\n")
     with open(ASSIGN_CONFIG_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)

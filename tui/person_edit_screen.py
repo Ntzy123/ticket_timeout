@@ -106,14 +106,6 @@ class PersonEditScreen(ModalScreen):
                 entry["plots"].append(plot)
             entry["roles"][plot] = "current"
 
-            for b in person.get("backups", []):
-                bentry = _ensure(b["name"])
-                bentry["mobile"] = b.get("mobile", "")
-                bentry["userId"] = b.get("userId", "")
-                if plot not in bentry["plots"]:
-                    bentry["plots"].append(plot)
-                bentry["roles"].setdefault(plot, "backup")
-
         # 部门级备份人员（不绑定具体地块）
         for b in self._dept_cfg.get("backups", []):
             if isinstance(b, dict) and b.get("name"):
@@ -257,7 +249,7 @@ class PersonEditScreen(ModalScreen):
             return
 
         if self._editing_index is not None and self._copy_data is None:
-            # 修改：更新该人在各处（岗位级 + 部门级备份）的信息
+            # 修改：更新该人在岗位接单人和部门级备份中的信息
             old_name = self._persons[self._editing_index]["name"]
             assignees = self._dept_cfg.setdefault("assignees", {})
             for plot, p in assignees.items():
@@ -319,22 +311,11 @@ class PersonEditScreen(ModalScreen):
             self.notify(f"{name} 是当前接单人，无法直接删除，请先替换", severity="error")
             return
 
-        # 删除：从部门级和岗位级备份中移除
-        removed = False
+        # 删除：从部门级备份中移除
         dept_backups = self._dept_cfg.get("backups", [])
         before = len(dept_backups)
         self._dept_cfg["backups"] = [b for b in dept_backups if b["name"] != name]
-        if len(self._dept_cfg["backups"]) < before:
-            removed = True
-
-        for plot_p, p in assignees.items():
-            backups = p.get("backups", [])
-            before = len(backups)
-            p["backups"] = [b for b in backups if b["name"] != name]
-            if len(p["backups"]) < before:
-                removed = True
-
-        if not removed:
+        if len(self._dept_cfg["backups"]) >= before:
             self.notify(f"未找到 {name}", severity="warning")
             return
 
