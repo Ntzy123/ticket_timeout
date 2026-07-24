@@ -75,19 +75,22 @@ userId = "2452500"
 
 ["安防"]
 backups = [
+  { name = "唐艺纹", mobile = "15902604767", userId = "2596928" },
+  { name = "高海超", mobile = "17623826232", userId = "2390410" },
+  { name = "廖清山", mobile = "18785152330", userId = "2482763" },
+  { name = "李林进", mobile = "19885190145", userId = "2512725" },
   { name = "倪昌飞", mobile = "15120193103", userId = "1698342" },
   { name = "曾洪熙", mobile = "18585028903", userId = "1784302" },
-  { name = "唐艺纹", mobile = "15902604767", userId = "2596928" },
 ]
 
 ["安防".assignees."11号地"]
-enabled = false
-name = "高海超"
-mobile = "17623826232"
-userId = "2390410"
+enabled = true
+name = "唐艺纹"
+mobile = "15902604767"
+userId = "2596928"
 
 ["安防".assignees."6号地"]
-enabled = false
+enabled = true
 name = "廖清山"
 mobile = "18785152330"
 userId = "2482763"

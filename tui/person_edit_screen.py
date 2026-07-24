@@ -181,7 +181,7 @@ class PersonEditScreen(ModalScreen):
             self.notify(f"{person['name']} 已是当前接单人", severity="information")
             return
 
-        # 旧接单人 → 备份
+        # 旧接单人 → 部门级备份
         old_name = current["name"] if current else None
         if current:
             assignees[self._plot] = {
@@ -189,12 +189,11 @@ class PersonEditScreen(ModalScreen):
                 "mobile": person.get("mobile", ""),
                 "userId": person.get("userId", ""),
                 "enabled": current.get("enabled", True),
-                "backups": current.get("backups", []),
             }
-            # 旧人加入备份（如果不在备份中）
-            backups = assignees[self._plot].setdefault("backups", [])
-            if not any(b["name"] == old_name for b in backups):
-                backups.append({
+            # 旧人加入部门级备份（如果不在备份中）
+            dept_backups = self._dept_cfg.setdefault("backups", [])
+            if not any(b["name"] == old_name for b in dept_backups):
+                dept_backups.append({
                     "name": current["name"],
                     "mobile": current.get("mobile", ""),
                     "userId": current.get("userId", ""),
@@ -204,7 +203,6 @@ class PersonEditScreen(ModalScreen):
                 "name": person["name"],
                 "mobile": person.get("mobile", ""),
                 "userId": person.get("userId", ""),
-                "backups": [],
             }
 
         write_assign_config(self._config)
@@ -259,34 +257,24 @@ class PersonEditScreen(ModalScreen):
             return
 
         if self._editing_index is not None and self._copy_data is None:
-            # 修改：更新该人在各处的信息
+            # 修改：更新该人在各处（岗位级 + 部门级备份）的信息
             old_name = self._persons[self._editing_index]["name"]
             assignees = self._dept_cfg.setdefault("assignees", {})
-            for plot, person in assignees.items():
-                if person["name"] == old_name:
-                    person["mobile"] = mobile
-                    person["userId"] = userid
-                for b in person.get("backups", []):
-                    if b["name"] == old_name:
-                        b["mobile"] = mobile
-                        b["userId"] = userid
+            for plot, p in assignees.items():
+                if p["name"] == old_name:
+                    p["mobile"] = mobile
+                    p["userId"] = userid
+            for b in self._dept_cfg.get("backups", []):
+                if b["name"] == old_name:
+                    b["mobile"] = mobile
+                    b["userId"] = userid
         else:
-            # 新增/复制 → 加入当前岗位的备份列表
-            assignees = self._dept_cfg.setdefault("assignees", {})
-            current = assignees.get(self._plot, {})
-            backups = current.get("backups", [])
-            if any(b["name"] == name for b in backups):
-                self.notify(f"备用人员中已存在 {name}", severity="warning")
+            # 新增/复制 → 加入部门级备份
+            dept_backups = self._dept_cfg.setdefault("backups", [])
+            if any(b["name"] == name for b in dept_backups):
+                self.notify(f"部门备份中已存在 {name}", severity="warning")
                 return
-            if current and current.get("name") == name:
-                self.notify(f"{name} 已是当前接单人", severity="warning")
-                return
-            backups.append({"name": name, "mobile": mobile, "userId": userid})
-            if current:
-                current["backups"] = backups
-            else:
-                assignees[self._plot] = {"name": "", "mobile": "", "userId": "",
-                                          "backups": backups}
+            dept_backups.append({"name": name, "mobile": mobile, "userId": userid})
 
         write_assign_config(self._config)
         self._hide_form()
@@ -331,13 +319,19 @@ class PersonEditScreen(ModalScreen):
             self.notify(f"{name} 是当前接单人，无法直接删除，请先替换", severity="error")
             return
 
-        # 删除：从所有备份中移除
+        # 删除：从部门级和岗位级备份中移除
         removed = False
-        for plot, person in assignees.items():
-            backups = person.get("backups", [])
+        dept_backups = self._dept_cfg.get("backups", [])
+        before = len(dept_backups)
+        self._dept_cfg["backups"] = [b for b in dept_backups if b["name"] != name]
+        if len(self._dept_cfg["backups"]) < before:
+            removed = True
+
+        for plot_p, p in assignees.items():
+            backups = p.get("backups", [])
             before = len(backups)
-            person["backups"] = [b for b in backups if b["name"] != name]
-            if len(person["backups"]) < before:
+            p["backups"] = [b for b in backups if b["name"] != name]
+            if len(p["backups"]) < before:
                 removed = True
 
         if not removed:
