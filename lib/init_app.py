@@ -42,7 +42,12 @@ DEFAULT_CONFIG = {
 DEFAULT_ASSIGN_CONFIG_TOML = '''# =====================
 # 部门接单人配置
 # =====================
+
 ["保洁"]
+backups = [
+  { name = "徐再菊", mobile = "18798737883", userId = "2127879" },
+  { name = "柏万碧", mobile = "18985106736", userId = "2078412" }
+]
 
 ["保洁".assignees."11号地"]
 enabled = true
@@ -52,13 +57,13 @@ userId = "2076797"
 
 ["保洁".assignees."6号地"]
 enabled = true
-name = "柏万碧"
-mobile = "18985106736"
-userId = "2078412"
+name = "徐再菊"
+mobile = "18798737883"
+userId = "2127879"
 
 ["绿化"]
 backups = [
-  { name = "赵扬霞", mobile = "18286197279", userId = "1963378" },
+  { name = "赵扬霞", mobile = "18286197279", userId = "1963378" }
 ]
 
 ["绿化".assignees."11号地"]
@@ -81,19 +86,22 @@ backups = [
   { name = "李林进", mobile = "19885190145", userId = "2512725" },
   { name = "倪昌飞", mobile = "15120193103", userId = "1698342" },
   { name = "曾洪熙", mobile = "18585028903", userId = "1784302" },
+  { name = "龙啟江", mobile = "17886268577", userId = "2281669" },
+  { name = "令狐康", mobile = "15186680567", userId = "2388941" },
+  { name = "马绍平", mobile = "15685056557", userId = "2154401" }
 ]
 
 ["安防".assignees."11号地"]
-enabled = true
-name = "唐艺纹"
-mobile = "15902604767"
-userId = "2596928"
+enabled = false
+name = "高海超"
+mobile = "17623826232"
+userId = "2390410"
 
 ["安防".assignees."6号地"]
-enabled = true
-name = "廖清山"
-mobile = "18785152330"
-userId = "2482763"
+enabled = false
+name = "马绍平"
+mobile = "15685056557"
+userId = "2154401"
 '''
 
 # ── 默认管家配置 ──────────────────────────────────────
