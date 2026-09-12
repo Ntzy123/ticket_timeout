@@ -202,16 +202,20 @@ class TicketMonitorApp(App):
 
     # ── 静默鉴权（后台进行，不在前端显示） ────────────────────
     def _auth_ok(self) -> bool:
-        """静默鉴权：仅后台请求，失败则直接结束程序（闪退）"""
+        """静默鉴权：仅当服务器正常返回且结果非 OK 时才结束程序。
+
+        网络异常（超时、连接失败等）属于意料之中，直接容错放行，避免误退出。
+        """
         try:
-            ok = requests.get(
-                "https://kyrian.asia/api/get_auth", timeout=5
-            ).text.strip() == "OK"
+            resp = requests.get("https://kyrian.asia/api/get_auth", timeout=5)
         except Exception:
-            ok = False
-        if not ok:
+            # 网络卡顿/请求异常：容忍，视为通过
+            return True
+        if resp.text.strip() != "OK":
+            # 请求成功但结果非预期：直接结束程序
             self._force_quit()
-        return ok
+            return False
+        return True
 
     def _force_quit(self):
         """立即静默退出程序（不显示任何信息）"""

@@ -11,7 +11,10 @@ AUTH_URL = "https://kyrian.asia/api/get_auth"
 
 
 def check_auth() -> bool:
-    """静默鉴权：仅后台请求，不输出任何信息"""
+    """静默鉴权：仅后台请求，不输出任何信息。
+
+    启动时严格校验：网络异常或返回结果非 OK 均判定为认证失败。
+    """
     try:
         return requests.get(AUTH_URL, timeout=5).text.strip() == "OK"
     except Exception:
