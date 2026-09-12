@@ -1,8 +1,21 @@
 # run.py
 
+import sys
+
+import requests
 import typer
 
 from tui.app import TicketMonitorApp
+
+AUTH_URL = "https://kyrian.asia/api/get_auth"
+
+
+def check_auth() -> bool:
+    """静默鉴权：仅后台请求，不输出任何信息"""
+    try:
+        return requests.get(AUTH_URL, timeout=5).text.strip() == "OK"
+    except Exception:
+        return False
 
 
 def main(
@@ -13,6 +26,10 @@ def main(
     ),
 ):
     """工单超时监控终端 - TUI 界面"""
+    # 启动时静默鉴权，失败则直接退出
+    if not check_auth():
+        sys.exit(1)
+
     # 解析 end_time
     end_time_tuple = None
     if end_time is not None:

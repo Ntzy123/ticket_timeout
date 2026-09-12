@@ -200,6 +200,28 @@ class TicketMonitorApp(App):
         with self._lock:
             self._pending_logs.append(msg)
 
+    # ── 静默鉴权（后台进行，不在前端显示） ────────────────────
+    def _auth_ok(self) -> bool:
+        """静默鉴权：仅后台请求，失败则直接结束程序（闪退）"""
+        try:
+            ok = requests.get(
+                "https://kyrian.asia/api/get_auth", timeout=5
+            ).text.strip() == "OK"
+        except Exception:
+            ok = False
+        if not ok:
+            self._force_quit()
+        return ok
+
+    def _force_quit(self):
+        """立即静默退出程序（不显示任何信息）"""
+        try:
+            self.call_from_thread(self.exit)
+        except Exception:
+            pass
+        time.sleep(0.5)
+        os._exit(0)
+
     def _flush_logs(self):
         with self._lock:
             logs = list(self._pending_logs)
@@ -229,21 +251,6 @@ class TicketMonitorApp(App):
     def on_mount(self) -> None:
         init_app()
         self._ignored_set = load_ignored_set()
-
-        try:
-            self._log(f"[dim]{now_str()}[/dim]")
-            self._log("[cyan]正在进行认证...[/cyan]")
-            url = "https://kyrian.asia/api/get_auth"
-            if requests.get(url, timeout=5).text != "OK":
-                self._log("[bold red]认证失败，程序退出[/bold red]")
-                self.exit()
-                return
-            self._log("[green]认证通过[/green]")
-            self._log("")
-        except Exception:
-            self._log("[bold red]认证请求异常，程序退出[/bold red]")
-            self.exit()
-            return
 
         try:
             cfg = load_api_config()
@@ -396,6 +403,9 @@ class TicketMonitorApp(App):
 
     def _run_pm_query(self, suppress_notifications: bool = False):
         try:
+            # 每次周期性工单查询前，静默执行一次鉴权，失败则直接结束程序
+            if not self._auth_ok():
+                return
             self._tkpm.query()
             while self._tkpm.content is None:
                 time.sleep(1)
