@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 import tomllib
 from typing import Any
 
@@ -107,30 +108,44 @@ def load_history() -> list[dict]:
         return []
 
 
-def append_history(record: dict) -> None:
-    """追加一条指派历史记录"""
-    history = load_history()
-    history.append(record)
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+HISTORY_KEEP_HOURS = 72
+# ponytail: 全局锁够用；多线程写历史频率极低
+_HISTORY_LOCK = threading.Lock()
+
+
+def _write_history(history: list[dict]) -> None:
+    """写历史：临时文件 + 原子替换，避免写一半损坏"""
+    tmp = HISTORY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, HISTORY_FILE)
 
 
-def cleanup_history(max_hours: int = 48) -> None:
+def append_history(record: dict) -> None:
+    """追加一条指派历史记录（同工单号只保留最新一条）"""
+    with _HISTORY_LOCK:
+        wo_no = record.get("workorderNo")
+        history = [h for h in load_history() if h.get("workorderNo") != wo_no]
+        history.append(record)
+        _write_history(history)
+
+
+def cleanup_history(max_hours: int = HISTORY_KEEP_HOURS) -> None:
     """删除超过指定小时数的指派历史记录，并在文件上持久化"""
     from datetime import datetime, timedelta
-    history = load_history()
-    cutoff = datetime.now() - timedelta(hours=max_hours)
-    kept = []
-    for h in history:
-        try:
-            t = datetime.strptime(h.get("acceptTime", ""), "%Y-%m-%d %H:%M:%S")
-            if t >= cutoff:
-                kept.append(h)
-        except (ValueError, TypeError):
-            continue
-    if len(kept) < len(history):
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(kept, f, ensure_ascii=False, indent=2)
+    with _HISTORY_LOCK:
+        history = load_history()
+        cutoff = datetime.now() - timedelta(hours=max_hours)
+        kept = []
+        for h in history:
+            try:
+                t = datetime.strptime(h.get("acceptTime", ""), "%Y-%m-%d %H:%M:%S")
+                if t >= cutoff:
+                    kept.append(h)
+            except (ValueError, TypeError):
+                continue
+        if len(kept) < len(history):
+            _write_history(kept)
 
 
 # ── 部门配置写入 ────────────────────────────────────────────

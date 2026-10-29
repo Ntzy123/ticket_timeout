@@ -11,7 +11,6 @@ from lib.config_manager import (
     write_assign_config,
     load_butler_config,
     load_history,
-    cleanup_history,
 )
 from tui.detail_screen import DetailScreen
 from tui.person_edit_screen import PersonEditScreen
@@ -187,8 +186,7 @@ class AutoAssignScreen(ModalScreen):
         table.cursor_type = "row"
 
     def _refresh(self) -> None:
-        """重新加载历史并刷新表格（自动清理超过 48 小时的记录）"""
-        cleanup_history(max_hours=48)
+        """重新加载历史并刷新表格"""
         self._history = load_history()
         self._rebuild_table(self.query_one("#aa-table", DataTable))
 

@@ -22,6 +22,7 @@ from feature.ticket_timeout_od import TicketTimeoutOD
 from lib.init_app import init_app
 from lib import api as lib_api
 from lib.auto_assigner import auto_assign_single
+from lib.config_manager import cleanup_history
 from tui.common import (
     format_remaining, get_remaining_style, truncate, now_str,
     load_api_config, load_ignored_set, add_ignored,
@@ -254,6 +255,7 @@ class TicketMonitorApp(App):
 
     def on_mount(self) -> None:
         init_app()
+        cleanup_history()
         self._ignored_set = load_ignored_set()
 
         try:
